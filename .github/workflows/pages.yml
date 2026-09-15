@@ -1,0 +1,73 @@
+name: Deploy cards site (GitHub Pages)
+
+# salesplus-wiki(private) 의 data/profiles·data/projects 만 읽어 정적 사이트(_site/)를 만들고 GitHub Pages 로 배포한다.
+# ⚠️ 이 저장소는 public 이고 사이트는 인터넷에 공개된다. 카드 JSON 화이트리스트만 빌드하고
+#    위키 본문·대화 원문은 절대 넣지 않는다 (salesplus-wiki/docs/PRIVACY.md).
+# 최초 1회: Settings → Pages → Build and deployment → Source = "GitHub Actions"
+#           Settings → Secrets → Actions 에 ORG_READ_TOKEN (salesplus-wiki Contents: Read)
+
+on:
+  schedule:
+    - cron: "20 0 * * *"       # 매일 09:20 KST. 스케줄은 수십 분 지연될 수 있다
+  workflow_dispatch:
+  repository_dispatch:
+    types: [wiki-data-updated] # salesplus-wiki 의 data/ 가 바뀌면 그쪽 notify-cards.yml 이 보낸다 (선택)
+  push:
+    branches: [main]
+    paths:
+      - scripts/**
+      - .github/workflows/pages.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@main
+      - uses: actions/setup-python@main
+        with:
+          python-version: "3.14"
+      - name: Build site from salesplus-wiki data
+        env:
+          GH_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
+          ORG: ${{ github.repository_owner }}
+          WIKI_REPO: salesplus-wiki
+          WIKI_REF: main
+        run: python scripts/build_site.py --out _site
+      - uses: actions/configure-pages@main
+      - uses: actions/upload-pages-artifact@main
+        with:
+          path: _site
+      - name: Open failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="카드 사이트 배포 실패"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number')
+          BODY="워크플로 실행이 실패했습니다: $RUN_URL
+
+          흔한 원인: \`ORG_READ_TOKEN\` 미등록·만료 또는 salesplus-wiki 읽기 권한 없음. Pages Source 가 GitHub Actions 가 아니면 deploy 단계가 실패한다."
+          if [ -n "$EXISTING" ]; then gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"; fi
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@main

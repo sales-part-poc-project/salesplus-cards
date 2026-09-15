@@ -1,0 +1,10 @@
+# CLAUDE.md
+
+세일즈플러스파트 카드 사이트 빌더. 데이터는 `salesplus-wiki/data/` 이고 여기에는 코드만 둔다. 설명은 [README.md](README.md).
+
+- `scripts/cards_data.py` — 적재(`load_local`·`load_remote`)와 스키마 검증. `.github-private/scripts/update_cards.py` 와 같은 규칙이다. **둘을 같이 고친다.**
+- `scripts/build_site.py` — HTML 렌더링만. 표준 라이브러리, CSS 인라인, JS·CDN 없음. 모든 카드 문자열은 `esc()` 를 거친다.
+- **public 저장소·public 사이트다.** 위키 본문·대화 원문·조직 저장소 통계를 넣는 코드를 쓰지 않는다. 금지 패턴은 `cards_data.py` 의 `FORBIDDEN_*`.
+- 한 건이 어긋나면 그 파일만 건너뛴다. 0건이어도 빌드는 성공한다.
+- 로컬 확인: `python3 scripts/build_site.py --local ../salesplus-wiki --out _site`. 테스트 코드는 커밋하지 않는다.
+- 커밋 메시지는 gitmoji 로 시작한다 (✨ 기능, 🐛 버그, ♻️ 리팩터링, 📝 문서, 🔧 설정).

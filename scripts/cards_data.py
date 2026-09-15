@@ -90,7 +90,8 @@ class GitHub:
         }
 
     def get(self, path: str, params: dict[str, object] | None = None) -> tuple[object, Message]:
-        url = f"{API}{path}" + ("?" + urllib.parse.urlencode(params) if params else "")
+        # 파일명이 한글이면 ASCII 가 아니라 putrequest 에서 실패한다 — 경로 세그먼트를 퍼센트 인코딩한다.
+        url = f"{API}{urllib.parse.quote(path, safe='/')}" + ("?" + urllib.parse.urlencode(params) if params else "")
         req = urllib.request.Request(url, headers=self._headers)
         for attempt in range(1, 4):
             try:

@@ -243,17 +243,27 @@ li{margin:0 0 6px}
 .sec-proj{color:var(--proj);margin-top:40px}
 .sec-proj .sectag{background:var(--proj-soft);color:var(--proj)}
 .sec-proj .card{border-color:var(--proj-soft);border-left:4px solid var(--proj)}
-.pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:14px}
-.pcard{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);
-  border-radius:16px;padding:17px;text-decoration:none;color:inherit;box-shadow:var(--shadow)}
+.pcards{display:grid;grid-template-columns:1fr;gap:18px}
+.pcard{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:22px;background:var(--card);
+  border:1px solid var(--line);border-radius:18px;padding:24px 26px;text-decoration:none;color:inherit;
+  box-shadow:var(--shadow)}
 .pcard:hover{border-color:var(--proj)}
-.phead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px}
-.pphase{font-size:12px;color:var(--muted)}
-.pname{font-size:18px;font-weight:800;line-height:1.3;color:var(--ink)}
+.pmain{display:flex;flex-direction:column;min-width:0}
+.paside{min-width:0;border-left:1px solid var(--line2);padding-left:22px}
+.phead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pphase{font-size:12.5px;color:var(--muted)}
+.pname{font-size:clamp(22px,3.4vw,28px);font-weight:800;line-height:1.25;color:var(--ink);letter-spacing:-.03em}
 .pcode{font-size:11.5px;color:var(--muted);font-weight:700;margin-left:6px;letter-spacing:.06em}
-.psum{font-size:13px;color:var(--ink2);margin-top:8px;line-height:1.55;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.pnext{font-size:12.5px;color:var(--proj);margin-top:auto;padding-top:11px;font-weight:700;line-height:1.45}
+.ptag{font-size:13.5px;color:var(--proj);font-weight:700;margin-top:6px}
+.psum{font-size:14px;color:var(--ink2);margin-top:10px;line-height:1.65}
+.pnext{font-size:13.5px;color:var(--proj);margin-top:auto;padding-top:14px;font-weight:700;line-height:1.45}
+.pk{font-size:10.5px;font-weight:800;letter-spacing:.09em;color:var(--muted);margin:0 0 8px}
+.paside .ms{margin-top:0}
+.paside .ms li{font-size:13px;padding-bottom:9px}
+.paside .mems{margin-top:14px}
+.paside .mem{padding:6px 10px;font-size:12.5px}
+.ptarget{font-size:12.5px;color:var(--muted);margin-top:12px}
+.ptarget b{color:var(--ink2)}
 .pnext i{font-style:normal;font-weight:800;font-size:10.5px;letter-spacing:.08em;color:var(--muted);
   margin-right:6px}
 .pcard .mchips{margin-top:10px}
@@ -327,6 +337,8 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-si
 @media (max-width:720px){
   .grid2,.talk-grid,.talk-meta{grid-template-columns:1fr}
   .fun3{grid-template-columns:1fr}
+  .pcard{grid-template-columns:1fr;gap:16px;padding:18px}
+  .paside{border-left:0;padding-left:0;border-top:1px solid var(--line2);padding-top:16px}
 }
 @media (max-width:430px){
   body{font-size:14.5px}
@@ -527,13 +539,16 @@ def render_person(d: dict[str, Any], built: str) -> str:
             "무엇을 먼저 정리했는지, 어떤 산출물을 냈는지 같은 <b>행동</b>을 보고 매겼다.</div>"
         )
     work_style = text(profile.get("work_style"))
-    work_body = (
+    if not profile:
+        work_body = card("", '<p class="empty" style="margin:0">아직 발화가 적어 업무 성향을 적지 않았다. 대화가 쌓이면 근거를 달아 채운다.</p>')
+    else:
+      work_body = (
         card("업무 성향 5축", axes_html(profile.get("axes")) + axes_note)
         + '<div class="grid2" style="margin-top:13px">'
         + card("일하는 방식", f'<p style="margin:0">{esc(work_style)}</p>' if work_style else '<p class="empty">아직 적혀 있지 않습니다</p>')
         + card("강점", ul(profile.get("strengths")))
         + "</div>"
-    )
+      )
     s_work = sec("sec-work", "관측 근거 있음", "업무 성향", work_body, "실제 업무 참고에 쓸 수 있는 수준")
 
     if fun:
@@ -562,8 +577,10 @@ def render_person(d: dict[str, Any], built: str) -> str:
             + f'<div class="fun3">{"".join(fcards)}</div></div>'
         )
         s_fun = sec("sec-fun", "추측 · 재미용", "재미 코너", fun_body, "근거 강도를 항목마다 표시한다")
-    else:
+    elif "fun" in d:
         s_fun = sec("sec-fun", "비공개", "재미 코너", card("", '<p class="empty" style="margin:0">본인 요청으로 재미 코너를 싣지 않는다. 업무 성향만 표시한다.</p>'))
+    else:
+        s_fun = sec("sec-fun", "아직 없음", "재미 코너", card("", '<p class="empty" style="margin:0">표본이 적어 아직 만들지 않았다. 대화가 쌓이면 채운다.</p>'))
 
     body = hero + banner_html() + '<main class="wrap">' + lowwarn + s_work + s_fun + signals_html(sig) + footer_html(part, built, d.get("sources")) + "</main>"
     return html_doc(f"{name} · {part} 프로필", body)
@@ -588,7 +605,7 @@ def member_card(d: dict[str, Any], href: str) -> str:
     if isinstance(top, list) and top and isinstance(top[0], (list, tuple)) and top[0]:
         chips.append(f'<span class="mchip react" title="가장 많이 받은 반응">{esc(str(top[0][0]))}</span>')
     if not fun:
-        chips.append('<span class="mchip">재미 코너 비공개</span>')
+        chips.append('<span class="mchip">재미 코너 비공개</span>' if "fun" in d else '<span class="mchip">아직 표본 부족</span>')
     badge = ""
     if low:
         n = fmt_int(sig.get("utterances")) if sig.get("utterances") is not None else "?"
@@ -711,26 +728,38 @@ def render_project(d: dict[str, Any], built: str, member_hrefs: dict[str, str]) 
     return html_doc(f"{title} · {part} 과제", body)
 
 
-def project_card(d: dict[str, Any], href: str) -> str:
+def project_card(d: dict[str, Any], href: str, member_hrefs: dict[str, str] | None = None) -> str:
+    """목록의 프로젝트 카드. 동시 진행 과제가 보통 2건이라 한 줄에 하나씩 크게 — 요약 전체·마일스톤·담당까지 보인다."""
     title = text(d.get("title")) or text(d.get("name"))
     status, phase, summary, codename = text(d.get("status")), text(d.get("phase")), text(d.get("summary")), text(d.get("codename"))
+    tagline, target = text(d.get("tagline")), text(d.get("target"))
     members = d.get("members") if isinstance(d.get("members"), list) else []
     _, _, nxt = project_progress(d.get("milestones"))
     chips = [f'<span class="mchip proj">{esc(b)}</span>' for b in str_list(d.get("badges"), 3)]
     if members:
         chips.append(f'<span class="mchip">담당 {len(members)}명</span>')
-    return (
-        f'<a class="pcard" href="{esc(href)}"><div class="phead">{status_badge(status)}'
+    main = (
+        f'<div class="pmain"><div class="phead">{status_badge(status)}'
         + (f'<span class="pphase">{esc(phase)}</span>' if phase else "")
         + f'</div><div class="pname">{esc(title)}'
         + (f'<span class="pcode">{esc(codename)}</span>' if codename else "")
         + "</div>"
+        + (f'<div class="ptag">{esc(tagline)}</div>' if tagline else "")
         + (f'<div class="psum">{esc(summary)}</div>' if summary else "")
+        + (f'<div class="mchips">{"".join(chips)}</div>' if chips else "")
         + progress_html(d.get("milestones"), compact=True)
         + (f'<div class="pnext"><i>다음</i>{esc(nxt)}</div>' if nxt else "")
-        + (f'<div class="mchips">{"".join(chips)}</div>' if chips else "")
-        + "</a>"
+        + "</div>"
     )
+    # 카드 전체가 <a> 라 담당 칩은 링크 없이 이름만 (중첩 링크 금지)
+    aside = (
+        '<div class="paside"><div class="pk">마일스톤</div>'
+        + milestones_html(d.get("milestones"))
+        + (f'<div class="ptarget"><b>목표</b> {esc(target)}</div>' if target else "")
+        + ('<div class="pk" style="margin-top:14px">담당</div>' + members_html(members, {}, "") if members else "")
+        + "</div>"
+    )
+    return f'<a class="pcard" href="{esc(href)}">{main}{aside}</a>'
 
 
 # ───────────────────────────────────────────────────────────────────── 목록·빌드

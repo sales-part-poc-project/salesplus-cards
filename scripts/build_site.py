@@ -23,7 +23,7 @@ import html
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -32,19 +32,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cards_data import (  # noqa: E402
     AXES,
     BANNER,
+    CHANGELOG_CARD_KO,
+    CHANGELOG_KEEP_DAYS,
+    CHANGELOG_KIND_KO,
     DEFAULT_PART,
     FUN_KEYS,
     MILESTONE_STATES,
     PROJECT_STATUS_ORDER,
     Card,
     badge_short,
+    business_limit,
+    holiday_set,
     load_local,
     load_remote,
     num,
+    parse_date,
     project_progress,
+    recent_entries,
     str_list,
     sub,
     text,
+    upcoming_items,
 )
 from cards_data import KST, GitHub, warn  # noqa: E402
 
@@ -211,6 +219,34 @@ code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.92em;backgrou
 .sec-members .sectag{background:var(--surface);color:var(--ink-2);border:1px solid var(--line)}
 .sec-proj{margin-top:48px}
 .sec-proj .sectag{background:var(--sky-soft);color:var(--sky-ink)}
+.sec-chg{margin-top:30px}
+.sec-chg .sectag{background:var(--vio-soft);color:var(--vio-ink)}
+.sec-sched .sectag{background:var(--warn-soft);color:var(--warn-ink)}
+
+/* 변경사항 · 파트 일정 — 좁은 화면에서는 행이 카드처럼 접힌다 (가로 스크롤 없음) */
+.dchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.dchip{font-size:11.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
+  padding:3px 9px;color:var(--muted)}
+.rtab{width:100%;border-collapse:collapse}
+.rtab td.d{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink-2);width:1%}
+.rtab td.t{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted);width:1%}
+.rtab td.w{width:1%;white-space:nowrap;color:var(--ink-2)}
+.rtab tr:last-child td{border-bottom:0}
+.rtab .on{color:var(--brand-ink);font-weight:800}
+.ck{display:inline-block;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;
+  white-space:nowrap;margin-right:8px}
+.ck-added{background:var(--ok-soft);color:var(--ok-ink)}
+.ck-updated{background:var(--sky-soft);color:var(--sky-ink)}
+.ck-removed{background:var(--warn-soft);color:var(--warn-ink)}
+.ctype{color:var(--muted);font-size:12px;margin-right:6px}
+@media (max-width:560px){
+  .rtab thead{display:none}
+  .rtab tr{display:block;padding:11px 0;border-bottom:1px solid var(--line-2)}
+  .rtab td{display:flex;gap:10px;border-bottom:0;padding:2px 0;width:auto}
+  .rtab td:empty{display:none}
+  .rtab td::before{content:attr(data-k);flex:0 0 46px;color:var(--muted);font-size:11.5px;font-weight:700;
+    line-height:1.7}
+}
 
 /* 재미 코너 — HSP 로고 계열 */
 .funwrap{position:relative;background:var(--surface-2);border:1px solid var(--hsp-line);border-radius:var(--r-lg);
@@ -608,13 +644,13 @@ def render_person(d: dict[str, Any], built: str) -> str:
     if not profile:
         work_body = card("", '<p class="empty" style="margin:0">아직 발화가 적어 업무 성향을 적지 않았다. 대화가 쌓이면 근거를 달아 채운다.</p>')
     else:
-      work_body = (
-        card("업무 성향 5축", axes_html(profile.get("axes")) + axes_note)
-        + '<div class="grid2" style="margin-top:13px">'
-        + card("일하는 방식", f'<p style="margin:0">{esc(work_style)}</p>' if work_style else '<p class="empty">아직 적혀 있지 않습니다</p>')
-        + card("강점", ul(profile.get("strengths")))
-        + "</div>"
-      )
+        work_body = (
+            card("업무 성향 5축", axes_html(profile.get("axes")) + axes_note)
+            + '<div class="grid2" style="margin-top:13px">'
+            + card("일하는 방식", f'<p style="margin:0">{esc(work_style)}</p>' if work_style else '<p class="empty">아직 적혀 있지 않습니다</p>')
+            + card("강점", ul(profile.get("strengths")))
+            + "</div>"
+        )
     s_work = sec("sec-work", "관측 근거 있음", "업무 성향", work_body, "실제 업무 참고에 쓸 수 있는 수준")
 
     if fun:
@@ -808,7 +844,7 @@ def render_project(d: dict[str, Any], built: str, member_hrefs: dict[str, str]) 
     return html_doc(f"{title} · {part} 과제", body)
 
 
-def project_card(d: dict[str, Any], href: str, member_hrefs: dict[str, str] | None = None) -> str:
+def project_card(d: dict[str, Any], href: str) -> str:
     """목록의 프로젝트 카드. 동시 진행 과제가 보통 2건이라 한 줄에 하나씩 크게 — 요약 전체·마일스톤·담당까지 보인다."""
     title = text(d.get("title")) or text(d.get("name"))
     status, phase, summary, codename = text(d.get("status")), text(d.get("phase")), text(d.get("summary")), text(d.get("codename"))
@@ -842,11 +878,131 @@ def project_card(d: dict[str, Any], href: str, member_hrefs: dict[str, str] | No
     return f'<a class="pcard" href="{esc(href)}">{main}{aside}</a>'
 
 
+# ─────────────────────────────────────────────────── 변경사항 · 파트 일정 (SCHEDULE_SCHEMA.md)
+
+WEEKDAY_KO = "월화수목금토일"
+
+
+def day_ko(d: date) -> str:
+    """`9/18(금)`."""
+    return f"{d.month}/{d.day}({WEEKDAY_KO[d.weekday()]})"
+
+
+def day_short(d: date) -> str:
+    """`9/18` — 기간 표기에 쓴다."""
+    return f"{d.month}/{d.day}"
+
+
+def gen_chip(generated: str) -> str:
+    return f'<div class="dchips"><span class="dchip">데이터 기준 {esc(generated)}</span></div>' if generated else ""
+
+
+def changelog_rows(entries: list[dict[str, Any]], member_hrefs: dict[str, str], project_hrefs: dict[str, str]) -> str:
+    trs = []
+    for e in entries:
+        d = parse_date(e.get("date"))
+        kind = text(e.get("kind"))
+        ctype = text(e.get("card"))
+        name = text(e.get("name"))
+        label = CHANGELOG_CARD_KO.get(ctype, ctype)
+        href = member_hrefs.get(name) if ctype == "profile" else (project_hrefs.get(name) if ctype == "project" else None)
+        who = f'<a href="{esc(href)}">{esc(name)}</a>' if href else esc(name)
+        target = f'<span class="ctype">{esc(label)}</span>{who}' if ctype != "schedule" else f"{esc(label)}"
+        badge = f'<span class="ck ck-{esc(kind)}">{esc(CHANGELOG_KIND_KO.get(kind, kind))}</span>'
+        trs.append(
+            f'<tr><td class="d" data-k="날짜">{esc(day_ko(d) if d else text(e.get("date")))}</td>'
+            f'<td class="w" data-k="카드">{target}</td>'
+            f'<td data-k="변경">{badge}{esc(text(e.get("summary")))}</td></tr>'
+        )
+    return (
+        '<table class="rtab"><thead><tr><th>날짜</th><th>카드</th><th>변경</th></tr></thead>'
+        f'<tbody>{"".join(trs)}</tbody></table>'
+    )
+
+
+def changelog_section(
+    data: dict[str, Any] | None, today: date, member_hrefs: dict[str, str], project_hrefs: dict[str, str]
+) -> str:
+    """최근 변경 — 7일. 파일 자체가 없으면 한 줄만 남긴다."""
+    if data is None:
+        body = card("", '<p class="empty" style="margin:0">아직 변경 기록이 없다. salesplus-wiki 에서 카드가 한 번 더 갱신되면 여기에 쌓인다.</p>')
+        return sec("sec-chg", "카드 이력", "최근 변경 — 7일", body)
+    keep = int(num(data.get("keep_days"), CHANGELOG_KEEP_DAYS)) or CHANGELOG_KEEP_DAYS
+    entries = recent_entries(data.get("entries"), today, keep)
+    inner = (
+        changelog_rows(entries, member_hrefs, project_hrefs)
+        if entries
+        else '<p class="empty" style="margin:0">지난 7일간 카드 변경 없음</p>'
+    )
+    body = card("", gen_chip(text(data.get("generated"))) + inner)
+    return sec("sec-chg", "카드 이력", "최근 변경 — 7일", body, "무엇이 바뀌었는지만 적는다 · 값은 싣지 않는다")
+
+
+def schedule_rows(items: list[dict[str, Any]]) -> str:
+    trs = []
+    for it in items:
+        start, end = parse_date(it.get("date")), parse_date(it.get("end"))
+        span = f"{day_short(start)}~{day_short(end)}" if (start and end and end != start) else (day_ko(start) if start else text(it.get("date")))
+        cell = f'<span class="on">진행 중</span> · {esc(span)}' if it.get("ongoing") else esc(span)
+        trs.append(
+            f'<tr><td class="d" data-k="날짜">{cell}</td>'
+            f'<td class="t" data-k="시간">{esc(text(it.get("time")))}</td>'
+            f'<td data-k="일정">{esc(text(it.get("title")))}</td>'
+            f'<td class="w" data-k="과제">{esc(text(it.get("project")))}</td></tr>'
+        )
+    return (
+        '<table class="rtab"><thead><tr><th>날짜</th><th>시간</th><th>일정</th><th>과제</th></tr></thead>'
+        f'<tbody>{"".join(trs)}</tbody></table>'
+    )
+
+
+def holiday_note(holidays: set[date], today: date) -> str:
+    rest = sorted(d for d in holidays if d >= today)
+    if not rest:
+        return ""
+    return f'<div class="note">휴무 — {esc(" · ".join(day_ko(d) for d in rest))}. 업무일 계산에서 뺐다.</div>'
+
+
+def schedule_section(data: dict[str, Any] | None, today: date) -> str:
+    """파트 일정 — 업무일 2일 이내. 창은 빌드 시각 기준으로 여기서 계산한다 (docs/SCHEDULE_SCHEMA.md)."""
+    title = "파트 일정 — 업무일 2일 이내"
+    if data is None:
+        body = card("", '<p class="empty" style="margin:0">아직 일정 데이터가 없다. salesplus-wiki 의 data/schedule.json 이 생기면 여기에 뜬다.</p>')
+        return sec("sec-sched", "위키 요약", title, body)
+    holidays = holiday_set(data.get("holidays"))
+    items = upcoming_items(data.get("items"), today, holidays)
+    limit = business_limit(today, holidays)
+    inner = schedule_rows(items) if items else '<p class="empty" style="margin:0">업무일 2일 안에 잡힌 일정이 없다</p>'
+    body = card("", gen_chip(text(data.get("generated"))) + inner + holiday_note(holidays, today))
+    return sec("sec-sched", "위키 요약", title, body, f"{day_ko(today)} ~ {day_ko(limit)}")
+
+
+def upcoming_count(data: dict[str, Any] | None, today: date) -> int:
+    if data is None:
+        return 0
+    return len(upcoming_items(data.get("items"), today, holiday_set(data.get("holidays"))))
+
+
 # ───────────────────────────────────────────────────────────────────── 목록·빌드
 
 
-def render_index(profiles: list[dict[str, Any]], projects: list[dict[str, Any]], skipped: list[Card], part: str, built: str, generated: str) -> str:
-    chips = [f'<span class="chip"><b>멤버</b>{len(profiles)}명</span>', f'<span class="chip"><b>프로젝트</b>{len(projects)}건</span>', f'<span class="chip"><b>빌드</b>{esc(built)}</span>']
+def render_index(
+    profiles: list[dict[str, Any]],
+    projects: list[dict[str, Any]],
+    skipped: list[Card],
+    part: str,
+    built: str,
+    generated: str,
+    schedule: dict[str, Any] | None = None,
+    changelog: dict[str, Any] | None = None,
+    today: date | None = None,
+) -> str:
+    today = today or datetime.now(KST).date()
+    chips = [f'<span class="chip"><b>멤버</b>{len(profiles)}명</span>', f'<span class="chip"><b>프로젝트</b>{len(projects)}건</span>']
+    near = upcoming_count(schedule, today)
+    if schedule is not None:
+        chips.append(f'<span class="chip"><b>임박 일정</b>{near}건</span>')
+    chips.append(f'<span class="chip"><b>빌드</b>{esc(built)}</span>')
     if generated:
         chips.append(f'<span class="chip"><b>데이터 기준</b>{esc(generated)}</span>')
     low_n = sum(1 for d in profiles if text(sub(d, "signals").get("confidence")) == "낮음")
@@ -869,6 +1025,11 @@ def render_index(profiles: list[dict[str, Any]], projects: list[dict[str, Any]],
     else:
         pcards = card("", '<p class="empty" style="margin:0">아직 프로젝트 카드가 없다. salesplus-wiki 의 data/projects/ 에 채운다.</p>')
     s_projects = '<div id="projects"></div>' + sec("sec-proj", "위키 요약", "프로젝트", pcards, "진행률은 마일스톤 완료 수 · 확정 계획이 아니다")
+    # 순서는 변경사항 → 파트 일정 → 프로젝트 → 멤버 (2026-09-16 결정 — 변경사항이 가장 중요하다)
+    member_hrefs = {text(d.get("name")): href_for("m", d) for d in profiles}
+    project_hrefs = {text(d.get("name")): href_for("p", d) for d in projects}
+    s_chg = changelog_section(changelog, today, member_hrefs, project_hrefs)
+    s_sched = schedule_section(schedule, today)
     skips = ""
     if skipped:
         items = "".join(f'<li><b>{esc(c.file)}</b> — {esc(c.errors[0] if c.errors else "빈 파일")}{esc(f" (외 {len(c.errors) - 1}건)" if len(c.errors) > 1 else "")}</li>' for c in skipped)
@@ -876,7 +1037,7 @@ def render_index(profiles: list[dict[str, Any]], projects: list[dict[str, Any]],
             f'<div class="warnbox skips"><h3>검증에서 건너뛴 파일 {len(skipped)}건</h3><ul>{items}</ul>'
             '<p style="margin-top:9px">한 건 때문에 전체가 막히지 않도록 그 파일만 빼고 빌드했다. 고치면 다음 빌드에 다시 들어온다.</p></div>'
         )
-    body = hero + banner_html() + '<main class="wrap">' + s_members + s_projects + skips + footer_html(part, built) + "</main>"
+    body = hero + banner_html() + '<main class="wrap">' + s_chg + s_sched + s_projects + s_members + skips + footer_html(part, built) + "</main>"
     return html_doc(f"{part} 멤버 프로필 · 프로젝트", body)
 
 
@@ -891,10 +1052,14 @@ def _project_key(d: dict[str, Any]) -> tuple[int, float, str]:
 def build(cards: list[Card], out_dir: Path) -> None:
     profiles = sorted([c.data for c in cards if c.ok and c.kind == "profile" and c.data is not None], key=lambda d: text(d.get("name")))
     projects = sorted([c.data for c in cards if c.ok and c.kind == "project" and c.data is not None], key=_project_key)
+    schedule = next((c.data for c in cards if c.ok and c.kind == "schedule" and c.data is not None), None)
+    changelog = next((c.data for c in cards if c.ok and c.kind == "changelog" and c.data is not None), None)
     skipped = [c for c in cards if not c.ok]
     part = next((text(d.get("part")) for d in profiles + projects if text(d.get("part"))), DEFAULT_PART)
-    generated = max((text(d.get("generated")) for d in profiles + projects), default="")
-    built = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
+    singles = [d for d in (schedule, changelog) if d is not None]
+    generated = max((text(d.get("generated")) for d in profiles + projects + singles), default="")
+    now = datetime.now(KST)
+    built = now.strftime("%Y-%m-%d %H:%M KST")
 
     member_hrefs = {text(d.get("name")): href_for("m", d) for d in profiles}
     (out_dir / "m").mkdir(parents=True, exist_ok=True)
@@ -903,9 +1068,15 @@ def build(cards: list[Card], out_dir: Path) -> None:
         (out_dir / "m" / f"{text(d.get('name'))}.html").write_text(render_person(d, built), encoding="utf-8")
     for d in projects:
         (out_dir / "p" / f"{text(d.get('name'))}.html").write_text(render_project(d, built, member_hrefs), encoding="utf-8")
-    (out_dir / "index.html").write_text(render_index(profiles, projects, skipped, part, built, generated), encoding="utf-8")
+    index = render_index(profiles, projects, skipped, part, built, generated, schedule, changelog, now.date())
+    (out_dir / "index.html").write_text(index, encoding="utf-8")
     (out_dir / ".nojekyll").write_text("", encoding="utf-8")  # Jekyll 후처리 방지
-    print(f"{out_dir}/index.html 생성 — 멤버 {len(profiles)}명 · 프로젝트 {len(projects)}건 · 건너뜀 {len(skipped)}건", file=sys.stderr)
+    near = upcoming_count(schedule, now.date())
+    print(
+        f"{out_dir}/index.html 생성 — 멤버 {len(profiles)}명 · 프로젝트 {len(projects)}건 · "
+        f"임박 일정 {near}건 · 건너뜀 {len(skipped)}건",
+        file=sys.stderr,
+    )
 
 
 def main() -> None:

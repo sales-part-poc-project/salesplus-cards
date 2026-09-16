@@ -5,20 +5,20 @@ name: Deploy cards site (GitHub Pages)
 #    위키 본문·대화 원문은 절대 넣지 않는다 (salesplus-wiki/docs/PRIVACY.md).
 # 최초 1회: Settings → Pages → Build and deployment → Source = "GitHub Actions"
 #           Settings → Secrets → Actions 에 ORG_READ_TOKEN (salesplus-wiki Contents: Read)
+#           salesplus-wiki 쪽 Secret 에 CARDS_DISPATCH_TOKEN (이 저장소 Contents: Read and write)
 
 on:
+  # 주 트리거. salesplus-wiki 의 data/profiles·data/projects 가 바뀔 때만 그쪽 notify-cards.yml 이 보낸다.
+  # 위키에 데이터가 늘 들어오지는 않는다 — 시간 단위로 긁지 말고 바뀐 순간에만 다시 그린다.
+  # 평일 매시간 cron 으로 때우던 것을 이 신호로 되돌렸다 (2026-09-16 결정을 뒤집음).
+  repository_dispatch:
+    types: [wiki-data-updated]
   schedule:
-    # 평일 업무시간에 매시간. salesplus-wiki 의 data/ 가 바뀌면 늦어도 한 시간 안에 사이트에 반영된다.
-    # 위키 → 이 저장소로 오는 repository_dispatch 는 salesplus-wiki 에 CARDS_DISPATCH_TOKEN 이 있어야
-    # 하는데 등록돼 있지 않다 (2026-09-16 확인 — dispatch 실행 이력 0건). 그 PAT 을 만들어 1년마다
-    # 갱신하는 대신 스케줄을 촘촘히 두기로 했다. 토큰을 등록하면 아래 시간별 cron 은 지워도 된다.
+    # 안전망 하나만 남긴다. 신호가 끊겨도(salesplus-wiki 의 PAT 만료·삭제) 하루 안에는 반영된다.
     # 분 값은 정시(:00)를 피한다. GitHub 은 매시 정각에 부하가 몰리면 스케줄 실행을 지연시키거나
     # 아예 버린다고 문서에 명시한다 (docs: "some queued jobs may be dropped").
-    - cron: "17 0-10 * * 1-5"  # = 09:17~19:17 KST 월~금
-    - cron: "37 0 * * 0,6"     # 주말 09:37 KST — 주말 안전망. 스케줄은 수십 분 지연될 수 있다
+    - cron: "37 0 * * *"       # 매일 09:37 KST. 스케줄은 수십 분 지연될 수 있다
   workflow_dispatch:
-  repository_dispatch:
-    types: [wiki-data-updated] # salesplus-wiki 의 data/ 가 바뀌면 그쪽 notify-cards.yml 이 보낸다 (선택)
   push:
     branches: [main]
     paths:

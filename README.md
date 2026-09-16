@@ -15,15 +15,19 @@ salesplus-wiki/data/profiles/*.json ─┐
 salesplus-wiki/data/projects/*.json ─┴→ cards_data.py (검증) → build_site.py → _site/ → GitHub Pages
 ```
 
-`.github/workflows/pages.yml` 이 매일 09:20 KST, 수동 실행(Actions → Run workflow), salesplus-wiki 의 `wiki-data-updated` 신호,
-`scripts/` 변경 push 때 돈다. 조직 프로필 README 의 카드 블록(`.github-private`, 조직 멤버 전용)과 같은 데이터·같은 검증 규칙이다.
+`.github/workflows/pages.yml` 의 주 트리거는 salesplus-wiki 의 `wiki-data-updated` 신호다 — 위키에 데이터가
+늘 들어오지는 않으므로 시간 단위로 긁지 않고 바뀐 순간에만 다시 그린다.
+신호가 끊겨도 매일 09:37 KST cron 이 안전망으로 돌고, 수동 실행(Actions → Run workflow)과 `scripts/` 변경 push 로도 돈다.
+조직 프로필 README 의 카드 블록(`.github-private`, 조직 멤버 전용)과 같은 데이터·같은 검증 규칙이다.
 
 ## 처음 설정 (한 번만)
 
 1. **Secret** — Settings → Secrets and variables → Actions → Secrets 에 `ORG_READ_TOKEN`
    (fine-grained PAT, Resource owner = 조직, 저장소 salesplus-wiki, **Contents: Read**). `.github-private` 에 쓰는 것과 같은 토큰이면 된다.
 2. **Pages** — Settings → Pages → Build and deployment → Source = **GitHub Actions**.
-3. (선택) salesplus-wiki 의 `CARDS_DISPATCH_TOKEN` 에 이 저장소 Contents: Read and write 를 주면 데이터 변경 즉시 반영된다. 없어도 매일 돈다.
+3. **Dispatch 토큰** — salesplus-wiki 의 Secret 에 `CARDS_DISPATCH_TOKEN`
+   (fine-grained PAT, Resource owner = 조직, 저장소 `.github-private` + `salesplus-cards`, **Contents: Read and write**).
+   이 토큰이 데이터 변경을 즉시 반영시킨다. 없거나 만료되면 반영이 최대 하루 늦고, 위키 쪽 워크플로가 노란불로 알린다.
 
 ## 무엇이 나가나
 

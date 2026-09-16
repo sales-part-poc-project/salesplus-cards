@@ -352,14 +352,33 @@ def load_local(root: Path) -> list[Card]:
     return cards
 
 
+def _ensure_repo_visible(gh: GitHub, org: str, repo: str) -> None:
+    """저장소 메타데이터가 404 면 토큰이 저장소를 못 보는 것이다 (없거나 만료됐거나 접근 권한이 빠짐)."""
+    try:
+        gh.get(f"/repos/{org}/{repo}")
+    except ApiError as e:
+        if "HTTP 404" in str(e):
+            raise ApiError(
+                f"{org}/{repo} 를 읽을 수 없다 (HTTP 404). 토큰(ORG_READ_TOKEN)이 없거나 만료됐거나 "
+                f"이 저장소 Contents: Read 권한이 빠져 있다. 데이터 없음이 아니라 접근 실패다."
+            ) from e
+        raise
+
+
 def load_remote(gh: GitHub, org: str, repo: str, ref: str) -> list[Card]:
-    """Contents API 로 data/profiles · data/projects 를 받는다. 디렉터리가 없으면(404) 비어 있는 것으로 본다."""
+    """Contents API 로 data/profiles · data/projects 를 받는다.
+
+    디렉터리가 없으면(404) 비어 있는 것으로 본다. 다만 GitHub 은 토큰이 못 보는 private 저장소에도
+    404 를 주므로, 저장소 자체가 안 보이면 "데이터 없음"이 아니라 오류로 올린다 — 그래야 빈 사이트가
+    정상 배포로 덮어쓰지 않고 워크플로가 실패해 토큰 문제를 알린다.
+    """
     cards: list[Card] = []
     for kind, sub in (("profile", "profiles"), ("project", "projects")):
         try:
             listing, _ = gh.get(f"/repos/{org}/{repo}/contents/data/{sub}", {"ref": ref})
         except ApiError as e:
             if "HTTP 404" in str(e):
+                _ensure_repo_visible(gh, org, repo)
                 warn(f"{repo}/data/{sub} 없음 — 건너뜀")
                 continue
             raise

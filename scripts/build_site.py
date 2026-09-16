@@ -233,6 +233,8 @@ li{margin:0 0 6px}
   padding:3px 9px;color:var(--ink2)}
 .mchip b{font-weight:800;color:var(--fun)}
 .mchip.mbti{background:var(--fun-soft);border-color:var(--fun-soft);color:var(--fun);font-weight:800}
+.mchip.age{border-color:var(--fun-soft);color:var(--fun);font-weight:700}
+.mchip.age i{font-style:normal;font-weight:600;font-size:10px;opacity:.75;margin-right:5px}
 .mchip.badge{border-style:dashed;border-color:var(--fun-soft);color:var(--fun)}
 .mchip.react{font-size:14px;padding:1px 10px;line-height:1.5}
 .lowbadge{display:flex;align-items:center;gap:6px;margin-top:12px;background:var(--warn-soft);
@@ -597,7 +599,10 @@ def member_card(d: dict[str, Any], href: str) -> str:
     if fun and text(g(fun, "mbti.value")):
         chips.append(f'<span class="mchip mbti">{esc(g(fun, "mbti.value"))}</span>')
     if fun and text(g(fun, "age_band.value")):
-        chips.append(f'<span class="mchip">{esc(g(fun, "age_band.value"))}</span>')
+        chips.append(
+            f'<span class="mchip age" title="나이대 추정 · 근거 약함 · {esc(g(fun, "age_band.basis", ""))}">'
+            f'<i>나이대</i>{esc(g(fun, "age_band.value"))}</span>'
+        )
     bc = badge_short(sig.get("badge"))
     if bc:
         chips.append(f'<span class="mchip badge" title="{esc(g(fun, "speech_badge.value", "") if fun else "")}">{esc(bc)}</span>')

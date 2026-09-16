@@ -7,5 +7,6 @@
 - CSS 색 토큰은 파트 로고 실측값이다 — 정본은 `salesplus-wiki/knowhow/파트-브랜드-컬러.md`. 글자에는 `*-ink`(대비 4.5:1 이상), 면·막대에는 원색을 쓴다. 색을 바꾸면 두 곳을 같이 고친다.
 - **public 저장소·public 사이트다.** 위키 본문·대화 원문·조직 저장소 통계를 넣는 코드를 쓰지 않는다. 금지 패턴은 `cards_data.py` 의 `FORBIDDEN_*`.
 - 한 건이 어긋나면 그 파일만 건너뛴다. 0건이어도 빌드는 성공한다.
-- 로컬 확인: `python3 scripts/build_site.py --local ../salesplus-wiki --out _site`. 테스트 코드는 커밋하지 않는다.
+- 로컬 확인: `python3 scripts/build_site.py --local ../salesplus-wiki --out _site`.
+- 테스트는 `scripts/test_cards_data.py` 에 두고 커밋한다 — 위키·README 빌더와 창 규칙이 어긋나지 않게 지키는 장치다. `python3 -m unittest discover -s scripts -p 'test_*.py'`
 - 커밋 메시지는 gitmoji 로 시작한다 (✨ 기능, 🐛 버그, ♻️ 리팩터링, 📝 문서, 🔧 설정).

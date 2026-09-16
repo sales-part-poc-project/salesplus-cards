@@ -39,9 +39,11 @@ from cards_data import (  # noqa: E402
     FUN_KEYS,
     MILESTONE_STATES,
     PROJECT_STATUS_ORDER,
+    SCHEDULE_WINDOW_DAYS,
     Card,
     badge_short,
-    business_limit,
+    business_window,
+    events_in_window,
     holiday_set,
     load_local,
     load_remote,
@@ -52,11 +54,20 @@ from cards_data import (  # noqa: E402
     str_list,
     sub,
     text,
-    upcoming_items,
 )
 from cards_data import KST, GitHub, warn  # noqa: E402
 
 PROJECT_STATUS_CLASS = {"준비": "ps-todo", "진행중": "ps-doing", "보류": "ps-hold", "완료": "ps-done"}
+# 일정 종류 일곱 값 (docs/SCHEDULE_SCHEMA.md). 색은 파트 로고 팔레트 안에서만 고른다.
+EVENT_KIND_CLASS = {
+    "회의": "ek-meet",
+    "근태": "ek-att",
+    "보고": "ek-report",
+    "행사": "ek-event",
+    "마감": "ek-due",
+    "배포": "ek-deploy",
+    "기타": "ek-etc",
+}
 MILESTONE_KO = {"done": "완료", "doing": "진행 중", "todo": "예정"}
 WORK_STATE_HINTS = (
     ("완료", "ws-done"),
@@ -232,14 +243,54 @@ code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.92em;backgrou
 .rtab td.t{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted);width:1%}
 .rtab td.w{width:1%;white-space:nowrap;color:var(--ink-2)}
 .rtab tr:last-child td{border-bottom:0}
-.rtab .on{color:var(--brand-ink);font-weight:800}
 .ck{display:inline-block;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;
   white-space:nowrap;margin-right:8px}
 .ck-added{background:var(--ok-soft);color:var(--ok-ink)}
 .ck-updated{background:var(--sky-soft);color:var(--sky-ink)}
 .ck-removed{background:var(--warn-soft);color:var(--warn-ink)}
 .ctype{color:var(--muted);font-size:12px;margin-right:6px}
+/* 신호 요약은 길다 — 조각 상자로 감싸 좁은 폭에서 `·` 단위로만 줄이 바뀌게 한다.
+   max-width 를 둬 조각 하나가 칸보다 길면 그 안에서 접힌다 (가로 스크롤 없음) */
+.chseg{display:inline-block;max-width:100%;vertical-align:top}
+.chseg:not(:last-child)::after{content:" ·";color:var(--muted)}
+.chseg+.chseg{margin-left:5px}
+.today{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;
+  background:var(--brand);color:#fff;letter-spacing:.01em}
+
+/* 파트 일정 — 날짜별로 묶는다. 표가 아니라 목록이라 좁은 화면에서도 접힐 게 없다 */
+.sday+.sday{margin-top:15px;padding-top:15px;border-top:1px solid var(--line-2)}
+.sdate{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:800;color:var(--ink);
+  font-variant-numeric:tabular-nums;margin-bottom:9px}
+.slist{list-style:none;padding:0;margin:0}
+.slist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin:0 0 10px;
+  font-size:13.5px;line-height:1.55}
+.slist li:last-child{margin-bottom:0}
+.slist li.rec{color:var(--ink-2)}
+.evtime{font-variant-numeric:tabular-nums;font-weight:800;color:var(--brand-ink);font-size:12.5px;
+  flex:0 0 auto;min-width:46px}
+.ek{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;white-space:nowrap;
+  border:1px solid transparent;flex:0 0 auto}
+.ek-meet{background:var(--sky-soft);border-color:var(--sky-line);color:var(--sky-ink)}
+.ek-att{background:var(--vio-soft);color:var(--vio-ink)}
+.ek-report{background:var(--hsp-soft);border-color:var(--hsp-line);color:var(--hsp-ink)}
+.ek-event{background:var(--ok-soft);color:var(--ok-ink)}
+.ek-due{background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn-ink)}
+.ek-deploy{background:var(--brand);border-color:var(--brand);color:#fff}
+.ek-etc{background:var(--surface-2);border-color:var(--line);color:var(--muted)}
+.evlabel{font-weight:700;color:var(--ink);flex:1 1 260px;min-width:0}
+.slist li.rec .evlabel{font-weight:600}
+.evproj{font-size:11.5px;background:var(--sky-soft);color:var(--sky-ink);border:1px solid var(--sky-line);
+  border-radius:999px;padding:1px 9px;white-space:nowrap}
+.evmem{font-size:11.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
+  padding:1px 9px;color:var(--ink-2);text-decoration:none;white-space:nowrap}
+a.evmem:hover{border-color:var(--brand-line);color:var(--brand-ink)}
+.evrepeat{font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:999px;
+  border:1px dashed var(--line);color:var(--muted)}
+.evspan,.evnote{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.on{font-size:10.5px;font-weight:800;color:var(--brand-ink);white-space:nowrap}
 @media (max-width:560px){
+  .evlabel{flex:1 1 100%}
+  .evtime{min-width:0}
   .rtab thead{display:none}
   .rtab tr{display:block;padding:11px 0;border-bottom:1px solid var(--line-2)}
   .rtab td{display:flex;gap:10px;border-bottom:0;padding:2px 0;width:auto}
@@ -888,31 +939,63 @@ def day_ko(d: date) -> str:
     return f"{d.month}/{d.day}({WEEKDAY_KO[d.weekday()]})"
 
 
-def day_short(d: date) -> str:
-    """`9/18` — 기간 표기에 쓴다."""
-    return f"{d.month}/{d.day}"
+def day_ko_str(s: object) -> str:
+    """`2026-09-18` → `9/18(금)`. 읽을 수 없으면 적힌 그대로."""
+    d = parse_date(s)
+    return day_ko(d) if d else text(s)
+
+
+def group_by_date(items: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+    """정렬된 목록을 날짜별로 묶는다 (정렬 순서를 그대로 지킨다)."""
+    groups: list[tuple[str, list[dict[str, Any]]]] = []
+    for it in items:
+        if groups and groups[-1][0] == it["date"]:
+            groups[-1][1].append(it)
+        else:
+            groups.append((it["date"], [it]))
+    return groups
+
+
+def today_mark(day: str, today: date) -> str:
+    return '<span class="today">오늘</span>' if day == today.isoformat() else ""
 
 
 def gen_chip(generated: str) -> str:
     return f'<div class="dchips"><span class="dchip">데이터 기준 {esc(generated)}</span></div>' if generated else ""
 
 
+def change_target(ctype: str, name: str, member_hrefs: dict[str, str], project_hrefs: dict[str, str]) -> str:
+    """바뀐 카드. `site` 는 대상이 없어 종류만, 프로필·프로젝트는 카드가 있으면 상세로 잇는다."""
+    label = CHANGELOG_CARD_KO.get(ctype, ctype)
+    if ctype == "site" or not name or name == label:  # 일정 카드는 이름이 곧 종류라 두 번 쓰지 않는다
+        return esc(label)
+    href = member_hrefs.get(name) if ctype == "profile" else (project_hrefs.get(name) if ctype == "project" else None)
+    who = f'<a href="{esc(href)}">{esc(name)}</a>' if href else esc(name)
+    return f'<span class="ctype">{esc(label)}</span>{who}'
+
+
+def summary_html(summary: str) -> str:
+    """`·` 로 이은 요약을 조각으로 나눈다.
+
+    프로필 줄은 한 사람당 하나뿐이라 신호 요약이 길어진다 (`발화 35→41건 · 평균 44→40자 · …`).
+    좁은 폭에서 글자 아무 데서나 접히지 않고 **조각 단위로** 줄이 바뀌게 조각마다 상자를 준다.
+    구분자는 앞 조각에 붙여(CSS `::after`) 다음 줄이 `·` 로 시작하지 않게 한다.
+    """
+    parts = [p for p in (chunk.strip() for chunk in summary.split("·")) if p]
+    if len(parts) < 2:
+        return esc(summary)
+    return "".join(f'<span class="chseg">{esc(p)}</span>' for p in parts)
+
+
 def changelog_rows(entries: list[dict[str, Any]], member_hrefs: dict[str, str], project_hrefs: dict[str, str]) -> str:
     trs = []
     for e in entries:
-        d = parse_date(e.get("date"))
         kind = text(e.get("kind"))
-        ctype = text(e.get("card"))
-        name = text(e.get("name"))
-        label = CHANGELOG_CARD_KO.get(ctype, ctype)
-        href = member_hrefs.get(name) if ctype == "profile" else (project_hrefs.get(name) if ctype == "project" else None)
-        who = f'<a href="{esc(href)}">{esc(name)}</a>' if href else esc(name)
-        target = f'<span class="ctype">{esc(label)}</span>{who}' if ctype != "schedule" else f"{esc(label)}"
         badge = f'<span class="ck ck-{esc(kind)}">{esc(CHANGELOG_KIND_KO.get(kind, kind))}</span>'
         trs.append(
-            f'<tr><td class="d" data-k="날짜">{esc(day_ko(d) if d else text(e.get("date")))}</td>'
-            f'<td class="w" data-k="카드">{target}</td>'
-            f'<td data-k="변경">{badge}{esc(text(e.get("summary")))}</td></tr>'
+            f'<tr><td class="d" data-k="날짜">{esc(day_ko_str(e.get("date")))}</td>'
+            f'<td class="w" data-k="카드">{change_target(text(e.get("card")), text(e.get("name")), member_hrefs, project_hrefs)}</td>'
+            f'<td data-k="변경">{badge}{summary_html(text(e.get("summary")))}</td></tr>'
         )
     return (
         '<table class="rtab"><thead><tr><th>날짜</th><th>카드</th><th>변경</th></tr></thead>'
@@ -938,49 +1021,76 @@ def changelog_section(
     return sec("sec-chg", "카드 이력", "최근 변경 — 7일", body, "무엇이 바뀌었는지만 적는다 · 값은 싣지 않는다")
 
 
-def schedule_rows(items: list[dict[str, Any]]) -> str:
-    trs = []
-    for it in items:
-        start, end = parse_date(it.get("date")), parse_date(it.get("end"))
-        span = f"{day_short(start)}~{day_short(end)}" if (start and end and end != start) else (day_ko(start) if start else text(it.get("date")))
-        cell = f'<span class="on">진행 중</span> · {esc(span)}' if it.get("ongoing") else esc(span)
-        trs.append(
-            f'<tr><td class="d" data-k="날짜">{cell}</td>'
-            f'<td class="t" data-k="시간">{esc(text(it.get("time")))}</td>'
-            f'<td data-k="일정">{esc(text(it.get("title")))}</td>'
-            f'<td class="w" data-k="과제">{esc(text(it.get("project")))}</td></tr>'
-        )
-    return (
-        '<table class="rtab"><thead><tr><th>날짜</th><th>시간</th><th>일정</th><th>과제</th></tr></thead>'
-        f'<tbody>{"".join(trs)}</tbody></table>'
-    )
+def event_members(names: list[str], member_hrefs: dict[str, str]) -> str:
+    """제목에 등장한 파트원. 프로필 카드가 있으면 상세로 잇는다."""
+    out = []
+    for n in names:
+        href = member_hrefs.get(n)
+        out.append(f'<a class="evmem" href="{esc(href)}">{esc(n)}</a>' if href else f'<span class="evmem">{esc(n)}</span>')
+    return "".join(out)
 
 
-def holiday_note(holidays: set[date], today: date) -> str:
-    rest = sorted(d for d in holidays if d >= today)
+def schedule_days(events: list[dict[str, Any]], today: date, member_hrefs: dict[str, str]) -> str:
+    """날짜별로 묶은 일정 목록. 한 줄 = 시각 · 종류 · 라벨 · 과제 · 멤버 · 기간."""
+    blocks = []
+    for day, items in group_by_date(events):
+        lis = []
+        for e in items:
+            kind = e["kind"]
+            row = f'<span class="evtime">{esc(e["time"])}</span>' if e["time"] else ""
+            row += f'<span class="ek {EVENT_KIND_CLASS.get(kind, "ek-etc")}">{esc(kind)}</span>'
+            row += f'<span class="evlabel">{esc(e["label"])}</span>'
+            if e["project"]:
+                row += f'<span class="evproj">{esc(e["project"])}</span>'
+            row += event_members(e["members"], member_hrefs)
+            if e["end"]:  # events_in_window 가 하루짜리는 이미 비워 준다
+                row += f'<span class="evspan">{esc(day_ko_str(day))}~{esc(day_ko_str(e["end"]))}</span>'
+            if e["ongoing"]:
+                row += '<span class="on">진행 중</span>'
+            if e["recurring"]:
+                row += '<span class="evrepeat">매주</span>'
+            if e["note"]:
+                row += f'<span class="evnote">{esc(e["note"])}</span>'
+            lis.append(f'<li class="{"rec" if e["recurring"] else ""}">{row}</li>')
+        head = f'<div class="sdate">{esc(day_ko_str(day))}{today_mark(day, today)}</div>'
+        blocks.append(f'<div class="sday">{head}<ul class="slist">{"".join(lis)}</ul></div>')
+    return "".join(blocks)
+
+
+def holiday_note(data: dict[str, Any], start: date, end: date) -> str:
+    """창 안에 낀 휴일. 업무일 계산에서 뺐다는 근거를 남긴다."""
+    rest = sorted(d for d in holiday_set(data.get("holidays")) if start <= d <= end)
     if not rest:
         return ""
-    return f'<div class="note">휴무 — {esc(" · ".join(day_ko(d) for d in rest))}. 업무일 계산에서 뺐다.</div>'
+    return f'<div class="note">휴무: {esc(" · ".join(day_ko(d) for d in rest))} — 업무일 계산에서 뺐다.</div>'
 
 
-def schedule_section(data: dict[str, Any] | None, today: date) -> str:
-    """파트 일정 — 업무일 2일 이내. 창은 빌드 시각 기준으로 여기서 계산한다 (docs/SCHEDULE_SCHEMA.md)."""
-    title = "파트 일정 — 업무일 2일 이내"
+def schedule_section(data: dict[str, Any] | None, today: date, member_hrefs: dict[str, str]) -> str:
+    """파트 일정 — 업무일 2일. 창은 빌드 시각 기준으로 여기서 계산한다 (docs/SCHEDULE_SCHEMA.md).
+
+    "데이터 없음"과 "창 안에 일정 없음"은 다른 문구다 — 파일이 빠진 것과 잡힌 일정이 없는 것은 다르다.
+    """
+    title = f"파트 일정 — 업무일 {SCHEDULE_WINDOW_DAYS}일"
     if data is None:
         body = card("", '<p class="empty" style="margin:0">아직 일정 데이터가 없다. salesplus-wiki 의 data/schedule.json 이 생기면 여기에 뜬다.</p>')
         return sec("sec-sched", "위키 요약", title, body)
-    holidays = holiday_set(data.get("holidays"))
-    items = upcoming_items(data.get("items"), today, holidays)
-    limit = business_limit(today, holidays)
-    inner = schedule_rows(items) if items else '<p class="empty" style="margin:0">업무일 2일 안에 잡힌 일정이 없다</p>'
-    body = card("", gen_chip(text(data.get("generated"))) + inner + holiday_note(holidays, today))
-    return sec("sec-sched", "위키 요약", title, body, f"{day_ko(today)} ~ {day_ko(limit)}")
+    events = events_in_window(data, today)
+    start, end = business_window(today, str_list(data.get("holidays")))
+    inner = (
+        schedule_days(events, today, member_hrefs)
+        if events
+        else f'<p class="empty" style="margin:0">업무일 {SCHEDULE_WINDOW_DAYS}일 안에 잡힌 일정 없음</p>'
+    )
+    body = card("", inner + holiday_note(data, start, end))
+    generated = text(data.get("generated"))
+    subtitle = f"{day_ko(start)} ~ {day_ko(end)} · 업무일 {SCHEDULE_WINDOW_DAYS}일"
+    if generated:
+        subtitle += f" · 데이터 기준 {generated}"
+    return sec("sec-sched", "위키 요약", title, body, subtitle)
 
 
 def upcoming_count(data: dict[str, Any] | None, today: date) -> int:
-    if data is None:
-        return 0
-    return len(upcoming_items(data.get("items"), today, holiday_set(data.get("holidays"))))
+    return len(events_in_window(data, today)) if data is not None else 0
 
 
 # ───────────────────────────────────────────────────────────────────── 목록·빌드
@@ -998,6 +1108,8 @@ def render_index(
     today: date | None = None,
 ) -> str:
     today = today or datetime.now(KST).date()
+    member_hrefs = {text(d.get("name")): href_for("m", d) for d in profiles}
+    project_hrefs = {text(d.get("name")): href_for("p", d) for d in projects}
     chips = [f'<span class="chip"><b>멤버</b>{len(profiles)}명</span>', f'<span class="chip"><b>프로젝트</b>{len(projects)}건</span>']
     near = upcoming_count(schedule, today)
     if schedule is not None:
@@ -1026,10 +1138,8 @@ def render_index(
         pcards = card("", '<p class="empty" style="margin:0">아직 프로젝트 카드가 없다. salesplus-wiki 의 data/projects/ 에 채운다.</p>')
     s_projects = '<div id="projects"></div>' + sec("sec-proj", "위키 요약", "프로젝트", pcards, "진행률은 마일스톤 완료 수 · 확정 계획이 아니다")
     # 순서는 변경사항 → 파트 일정 → 프로젝트 → 멤버 (2026-09-16 결정 — 변경사항이 가장 중요하다)
-    member_hrefs = {text(d.get("name")): href_for("m", d) for d in profiles}
-    project_hrefs = {text(d.get("name")): href_for("p", d) for d in projects}
     s_chg = changelog_section(changelog, today, member_hrefs, project_hrefs)
-    s_sched = schedule_section(schedule, today)
+    s_sched = schedule_section(schedule, today, member_hrefs)
     skips = ""
     if skipped:
         items = "".join(f'<li><b>{esc(c.file)}</b> — {esc(c.errors[0] if c.errors else "빈 파일")}{esc(f" (외 {len(c.errors) - 1}건)" if len(c.errors) > 1 else "")}</li>' for c in skipped)

@@ -19,8 +19,9 @@ salesplus-wiki/data/changelog.json   ─┘
 ```
 
 index 의 순서는 **변경사항 → 파트 일정 → 프로젝트 → 멤버** 다 (2026-09-16 결정 — 변경사항이 가장 중요하다).
-일정의 "업무일 2일 이내" 창은 JSON 에 없고 **빌드 시각 기준으로 여기서 계산한다** — 위키의 `build_schedule.py` ·
-`.github-private` 의 `update_cards.py` 와 규칙이 같아야 한다 (`scripts/cards_data.py` 의 `business_limit`).
+일정의 "업무일 2일" 창은 JSON 에 없고 **빌드 시각 기준으로 여기서 계산한다** — 위키의 `build_schedule.py` ·
+`.github-private` 의 `update_cards.py` 와 규칙이 같아야 한다 (`scripts/cards_data.py` 의 `business_window` · `events_in_window`).
+기준일이 업무일이면 그날이 첫째 날, 아니면 다음 업무일이 첫째 날이고, 창은 거기서부터 업무일 2일이다 (목 → 목·금, 금 → 금·월, 토 → 월·화).
 
 `.github/workflows/pages.yml` 의 주 트리거는 salesplus-wiki 의 `wiki-data-updated` 신호다 — 위키에 데이터가
 늘 들어오지는 않으므로 시간 단위로 긁지 않고 바뀐 순간에만 다시 그린다.
@@ -38,7 +39,7 @@ index 의 순서는 **변경사항 → 파트 일정 → 프로젝트 → 멤버
 
 ## 무엇이 나가나
 
-- 무엇을 싣고 뺄지는 salesplus-wiki 의 `docs/PRIVACY.md` · `docs/PROFILE_SCHEMA.md` · `docs/PROJECT_SCHEMA.md` · `docs/SCHEDULE_SCHEMA.md` 가 정한다
+- 무엇을 싣고 뺄지는 salesplus-wiki 의 `docs/PRIVACY.md` · `docs/PROFILE_SCHEMA.md` · `docs/PROJECT_SCHEMA.md` · `docs/SCHEDULE_SCHEMA.md` · `docs/CHANGELOG_SCHEMA.md` 가 정한다
 - 링크·전화번호·이메일·주민번호 형태·원문 인용 키가 있으면 **그 파일만** 건너뛰고 index 하단에 사유를 남긴다
 - MBTI·나이대는 추측이라 근거 강도가 붙는다. 본인이 원하면 위키에서 자기 JSON 의 `fun` 을 `null` 로 둔다
 - 카드가 0건이어도 사이트는 만들어진다
@@ -50,6 +51,7 @@ python3 scripts/build_site.py --local ../salesplus-wiki --out _site   # 옆에 �
 open _site/index.html
 ```
 
-업무일 창·보관 기간 규칙은 `python3 -m unittest discover -s tests` 로 확인한다 (테스트 코드는 커밋하지 않는다).
+업무일 창·보관 기간 규칙은 `python3 -m unittest discover -s scripts -p 'test_*.py'` 로 확인한다.
+테스트는 `scripts/test_cards_data.py` 에 두고 커밋한다 — 위키·README 빌더와 창 규칙이 어긋나지 않게 지키는 장치다.
 
 표준 라이브러리만 쓴다 (Python 3.12+). `_site/` 는 커밋하지 않는다.

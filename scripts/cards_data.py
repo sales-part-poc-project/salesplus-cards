@@ -5,7 +5,8 @@
 `data/schedule.json` · `data/changelog.json` (한 파일에 한 카드)이다.
 위키 본문(projects/·members/·raw/)은 읽지 않는다 — 카드는 사람이 공개 범위를 골라 다시 쓴 요약이다.
 스키마·공개 범위는 그 저장소의 docs/PROFILE_SCHEMA.md · docs/PROJECT_SCHEMA.md · docs/SCHEDULE_SCHEMA.md ·
-docs/PRIVACY.md. 검증 규칙과 업무일 창 계산은 `.github-private/scripts/update_cards.py` 와 같아야 한다.
+docs/CHANGELOG_SCHEMA.md · docs/PRIVACY.md. 검증 규칙과 업무일 창 계산은 `.github-private/scripts/update_cards.py`
+와 같아야 한다.
 
 환경변수·옵션은 이 모듈을 쓰는 build_site.py 가 읽는다 (GH_TOKEN · ORG · WIKI_REPO · WIKI_REF · --local).
 
@@ -129,13 +130,16 @@ AXES = (
 
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-# 파트 일정 · 변경사항 (salesplus-wiki/docs/SCHEDULE_SCHEMA.md). 한 파일에 한 카드다.
-BUSINESS_DAYS_AHEAD = 2  # "업무일 2일 이내" — 오늘은 세지 않는다
+# 파트 일정 · 변경사항 (salesplus-wiki/docs/SCHEDULE_SCHEMA.md · docs/CHANGELOG_SCHEMA.md).
+# 한 파일에 한 카드라, 어긋나면 그 섹션만 빠지고 나머지 카드는 그대로 나온다.
+SCHEDULE_WINDOW_DAYS = 2  # 업무일 2일 — 기준일이 업무일이면 기준일이 첫째 날이다
+_WINDOW_SCAN_LIMIT = 400  # 휴일 목록이 잘못 채워져도 무한히 돌지 않게
+EVENT_KINDS = ("회의", "근태", "보고", "행사", "마감", "배포", "기타")
 CHANGELOG_KEEP_DAYS = 7
-CHANGELOG_CARDS = ("profile", "project", "schedule")
+CHANGELOG_CARDS = ("profile", "project", "schedule", "site")
 CHANGELOG_KINDS = ("added", "updated", "removed")
 CHANGELOG_KIND_KO = {"added": "신설", "updated": "갱신", "removed": "삭제"}
-CHANGELOG_CARD_KO = {"profile": "멤버", "project": "프로젝트", "schedule": "파트 일정"}
+CHANGELOG_CARD_KO = {"profile": "멤버", "project": "프로젝트", "schedule": "파트 일정", "site": "사이트"}
 
 PROJECT_STATUSES = ("준비", "진행중", "보류", "완료")
 PROJECT_STATUS_ORDER = {"진행중": 0, "준비": 1, "보류": 2, "완료": 3}
@@ -260,61 +264,113 @@ def validate_project(data: object, stem: str) -> list[str]:
     return errors
 
 
+def _date_errors(value: object, where: str, required: bool = True) -> list[str]:
+    """형식(`YYYY-MM-DD`)과 달력 존재 여부. 날짜 비교를 문자열로 하므로 형식이 어긋나면 받지 않는다."""
+    s = text(value)
+    if not s:
+        return [f"{where}: 비어 있습니다 (YYYY-MM-DD)"] if required else []
+    if not ISO_DATE.match(s):
+        return [f"{where}: YYYY-MM-DD 형식이어야 합니다 (현재 {s!r})"]
+    try:
+        date.fromisoformat(s)
+    except ValueError:
+        return [f"{where}: 달력에 없는 날짜입니다 ({s!r})"]
+    return []
+
+
+def _valid_date(s: str) -> bool:
+    """형식이 맞고 달력에 있는 날짜인지 (2026-09-31 은 형식은 맞지만 없다)."""
+    return not _date_errors(s, "")
+
+
+def _event_errors(e: object, where: str, recurring: bool) -> list[str]:
+    """events[] 와 recurring[] 이 함께 타는 검사 — kind 는 일곱 값, label 은 비어 있지 않음."""
+    if not isinstance(e, dict):
+        return [f"{where}: 객체가 아닙니다"]
+    errors: list[str] = []
+    kind = text(e.get("kind"))
+    if kind not in EVENT_KINDS:
+        errors.append(f"{where}.kind: {' | '.join(EVENT_KINDS)} 중 하나여야 합니다 (현재 {kind!r})")
+    if not text(e.get("label")):
+        errors.append(f"{where}.label: 비어 있습니다 (카드에 찍을 한 줄)")
+    if not recurring:
+        errors.extend(_date_errors(e.get("date"), f"{where}.date"))
+        errors.extend(_date_errors(e.get("end"), f"{where}.end", required=False))
+        start, end = text(e.get("date")), text(e.get("end"))
+        if end and ISO_DATE.match(start) and ISO_DATE.match(end) and end < start:
+            errors.append(f"{where}.end: date 이상이어야 합니다 ({start} → {end})")
+    else:
+        wd = e.get("weekdays")
+        if not isinstance(wd, list) or not wd:
+            errors.append(f"{where}.weekdays: 0=월 … 6=일 정수 배열이 필요합니다")
+        else:
+            bad = [d for d in wd if not isinstance(d, int) or isinstance(d, bool) or not 0 <= d <= 6]
+            if bad:
+                errors.append(f"{where}.weekdays: 0~6 정수만 들어갑니다 (현재 {bad!r})")
+        # from·until 도 문자열로 비교하므로 형식이 어긋나면 전개 범위가 조용히 틀어진다
+        for key in ("from", "until"):
+            errors.extend(_date_errors(e.get(key), f"{where}.{key}", required=False))
+    return errors
+
+
 def validate_schedule(data: object, stem: str) -> list[str]:
-    """거부 사유 목록. 빈 리스트면 통과 (docs/SCHEDULE_SCHEMA.md)."""
+    """거부 사유 목록. 빈 리스트면 통과 (docs/SCHEDULE_SCHEMA.md '검증' 여섯 항목).
+
+    `name` 검사는 하지 않는다 — 사람 카드와 달리 파일명이 곧 카드 이름이 아니다.
+    """
     if not isinstance(data, dict):
         return [f"최상위가 객체가 아닙니다 (현재 {type(data).__name__})"]
     errors = _common_errors(data, stem, check_name=False)
     hol = data.get("holidays")
-    if hol is None or isinstance(hol, list):
-        for i, h in enumerate(hol or []):
-            if not ISO_DATE.match(text(h)):
-                errors.append(f"holidays[{i}]: YYYY-MM-DD 형식이어야 합니다 (현재 {text(h)!r})")
+    if hol is not None and not isinstance(hol, list):
+        errors.append("holidays: YYYY-MM-DD 배열이어야 합니다")
     else:
-        errors.append("holidays: 배열이어야 합니다")
-    items = data.get("items")
-    if items is not None and not isinstance(items, list):
-        errors.append("items: 배열이어야 합니다")
-        return errors
-    for i, it in enumerate(items or []):
-        if not isinstance(it, dict):
-            errors.append(f"items[{i}]: 객체가 필요합니다")
+        for i, h in enumerate(hol or []):
+            errors.extend(_date_errors(h, f"holidays[{i}]"))
+    for key, recurring in (("events", False), ("recurring", True)):
+        v = data.get(key)
+        if v is None:
+            continue  # 없으면 빈 배열로 본다
+        if not isinstance(v, list):
+            errors.append(f"{key}: 배열이어야 합니다")
             continue
-        if not ISO_DATE.match(text(it.get("date"))):
-            errors.append(f"items[{i}].date: YYYY-MM-DD 형식이어야 합니다 (현재 {text(it.get('date'))!r})")
-        end = it.get("end")
-        if end is not None and not ISO_DATE.match(text(end)):
-            errors.append(f"items[{i}].end: YYYY-MM-DD 이거나 null 이어야 합니다 (현재 {text(end)!r})")
-        if not text(it.get("title")):
-            errors.append(f"items[{i}].title: 비어 있습니다")
+        for i, e in enumerate(v):
+            errors.extend(_event_errors(e, f"{key}[{i}]", recurring))
     return errors
 
 
 def validate_changelog(data: object, stem: str) -> list[str]:
-    """거부 사유 목록. 빈 리스트면 통과 (docs/SCHEDULE_SCHEMA.md)."""
+    """거부 사유 목록. 빈 리스트면 통과 (docs/CHANGELOG_SCHEMA.md '검증')."""
     if not isinstance(data, dict):
         return [f"최상위가 객체가 아닙니다 (현재 {type(data).__name__})"]
     errors = _common_errors(data, stem, check_name=False)
+    keep = data.get("keep_days")
+    if keep is not None and (not isinstance(keep, int) or isinstance(keep, bool) or keep < 1):
+        errors.append(f"keep_days: 1 이상의 정수여야 합니다 (현재 {keep!r})")
     entries = data.get("entries")
     if entries is not None and not isinstance(entries, list):
         errors.append("entries: 배열이어야 합니다")
         return errors
     for i, e in enumerate(entries or []):
+        where = f"entries[{i}]"
         if not isinstance(e, dict):
-            errors.append(f"entries[{i}]: 객체가 필요합니다")
+            errors.append(f"{where}: 객체가 필요합니다")
             continue
-        if not ISO_DATE.match(text(e.get("date"))):
-            errors.append(f"entries[{i}].date: YYYY-MM-DD 형식이어야 합니다 (현재 {text(e.get('date'))!r})")
+        errors.extend(_date_errors(e.get("date"), f"{where}.date"))
         if text(e.get("card")) not in CHANGELOG_CARDS:
-            errors.append(f"entries[{i}].card: {' | '.join(CHANGELOG_CARDS)} 중 하나여야 합니다 (현재 {text(e.get('card'))!r})")
+            errors.append(f"{where}.card: {' | '.join(CHANGELOG_CARDS)} 중 하나여야 합니다 (현재 {text(e.get('card'))!r})")
         if text(e.get("kind")) not in CHANGELOG_KINDS:
-            errors.append(f"entries[{i}].kind: {' | '.join(CHANGELOG_KINDS)} 중 하나여야 합니다 (현재 {text(e.get('kind'))!r})")
+            errors.append(f"{where}.kind: {' | '.join(CHANGELOG_KINDS)} 중 하나여야 합니다 (현재 {text(e.get('kind'))!r})")
+        if not text(e.get("summary")):
+            errors.append(f"{where}.summary: 비어 있습니다 (무엇이 바뀌었는지 한 줄)")
     return errors
 
 
 # ────────────────────────────────────────────────── 업무일 규칙 (SCHEDULE_SCHEMA.md)
 # 카드 빌드는 매일 돌고 위키는 매일 바뀌지 않으므로, 표시 창은 JSON 에 넣지 않고 그리는 쪽이
-# 빌드 시각 기준으로 계산한다. 위키의 build_schedule.py 와 구현이 같아야 한다.
+# 빌드 시각(KST) 기준으로 계산한다. 위키의 build_schedule.py · .github-private 의 update_cards.py
+# 와 **같은 규칙**이다 (`business_window` · `events_in_window`). 한쪽을 고치면 세 곳을 같이 고친다 —
+# 어긋나면 공개 사이트와 텔레그램 요약이 다른 날짜를 말한다. scripts/test_cards_data.py 가 경계값을 지킨다.
 
 
 def parse_date(v: object) -> date | None:
@@ -332,52 +388,116 @@ def holiday_set(v: object) -> set[date]:
     return {d for d in (parse_date(x) for x in (v if isinstance(v, list) else [])) if d}
 
 
-def is_business_day(d: date, holidays: set[date]) -> bool:
-    return d.weekday() < 5 and d not in holidays
+def is_business_day(d: date, holidays: object) -> bool:
+    """월~금이고 휴일이 아닌 날. 휴일 집합은 `date` 든 `YYYY-MM-DD` 문자열이든 받는다."""
+    hs = holidays if isinstance(holidays, (set, frozenset)) else set(holidays or ())
+    return d.weekday() < 5 and d not in hs and d.isoformat() not in hs
 
 
-def business_limit(today: date, holidays: set[date], days: int = BUSINESS_DAYS_AHEAD) -> date:
-    """오늘은 세지 않고 업무일을 `days` 개 더 센 날 (수→금, 금→화, 토→화).
+def business_window(today: date, holidays: object = (), days: int = SCHEDULE_WINDOW_DAYS) -> tuple[date, date]:
+    """(창 시작, 창 끝). 기준일이 업무일이면 그날이 첫째 날, 아니면 다음 업무일이 첫째 날.
 
-    휴일이 끼면 그만큼 뒤로 민다. 60일 안에서 못 채우면 거기서 멈춘다 — 휴일 목록이 이상해도 돌지 않게.
+    첫째 날부터 업무일을 `days` 개 세어 마지막 업무일이 창 끝이다.
+    목 → (목, 금) · 금 → (금, 월) · 토 → (월, 화) · 목이고 금이 휴일 → (목, 월).
     """
-    d, left = today, max(0, days)
-    for _ in range(60):
-        if left <= 0:
+    hs: set[object] = {holidays} if isinstance(holidays, str) else {
+        h.isoformat() if isinstance(h, date) else text(h) for h in (holidays or ())
+    }
+    start = today
+    for _ in range(_WINDOW_SCAN_LIMIT):
+        if is_business_day(start, hs):
             break
-        d += timedelta(days=1)
-        if is_business_day(d, holidays):
-            left -= 1
-    return d
+        start += timedelta(days=1)
+    cur, counted = start, 1
+    while counted < days:
+        cur += timedelta(days=1)
+        if (cur - start).days > _WINDOW_SCAN_LIMIT:
+            break
+        if is_business_day(cur, hs):
+            counted += 1
+    return start, cur
 
 
-def upcoming_items(items: object, today: date, holidays: set[date]) -> list[dict[str, Any]]:
-    """창(오늘~업무일 2일) 안에 걸치는 일정. 각 항목에 `ongoing`(오늘 이전 시작) 을 달아 돌려준다."""
-    limit = business_limit(today, holidays)
+def _norm_event(e: dict[str, Any], day: str, end: str, recurring: bool, ongoing: bool) -> dict[str, Any]:
+    """카드가 읽는 한 줄. 렌더러가 키를 뒤지지 않게 events·recurring 을 같은 모양으로 편다."""
+    return {
+        "date": day,
+        "end": end,
+        "time": text(e.get("time")),
+        "kind": text(e.get("kind")),
+        "label": text(e.get("label")),
+        "members": str_list(e.get("members")),
+        "note": text(e.get("note")),
+        "project": text(e.get("project")),
+        "recurring": recurring,
+        "ongoing": ongoing,
+    }
+
+
+def events_in_window(schedule: object, today: date, days: int = SCHEDULE_WINDOW_DAYS) -> list[dict[str, Any]]:
+    """창 안의 이벤트를 날짜순(같은 날은 time → label)으로. 빈 시각(종일)이 먼저다.
+
+    - 단발 이벤트: `date <= 창 끝` 이고 `(end 또는 date) >= 창 시작` 이면 들어온다.
+      창 안의 주말·휴일에 걸린 이벤트도 보인다. `date < 창 시작` 이면 `ongoing`.
+    - 반복 일정: 창 안의 **업무일**에만 전개한다 (주말·휴일에는 펴지 않는다).
+      `weekdays` 에 요일이 있고 `from <= 날짜 <= until` 이어야 한다 (빈 문자열은 무제한).
+    - 같은 날 같은 시각·라벨·멤버는 한 번만 — 단발이 반복보다 먼저라 단발 쪽이 남는다.
+    """
+    d = schedule if isinstance(schedule, dict) else {}
+    holidays = set(str_list(d.get("holidays")))
+    start, end = business_window(today, holidays, days)
+    s_iso, e_iso = start.isoformat(), end.isoformat()
+
     out: list[dict[str, Any]] = []
-    for it in items if isinstance(items, list) else []:
-        if not isinstance(it, dict):
+    for e in d.get("events") or []:
+        if not isinstance(e, dict):
             continue
-        start = parse_date(it.get("date"))
-        if start is None:
+        day = text(e.get("date"))
+        if not _valid_date(day):
             continue
-        end = parse_date(it.get("end")) or start
-        if start > limit or end < today:
+        tail = text(e.get("end"))
+        if not _valid_date(tail) or tail == day:
+            tail = ""  # build_schedule.py 와 같게 — 하루짜리는 end 를 비운다
+        if day <= e_iso and (tail or day) >= s_iso:
+            out.append(_norm_event(e, day, tail, recurring=False, ongoing=day < s_iso))
+
+    cur = start
+    while cur <= end:
+        if is_business_day(cur, holidays):
+            iso = cur.isoformat()
+            for r in d.get("recurring") or []:
+                if not isinstance(r, dict):
+                    continue
+                wd = r.get("weekdays")
+                if not isinstance(wd, list) or cur.weekday() not in wd:
+                    continue
+                frm, until = text(r.get("from")), text(r.get("until"))
+                if (frm and iso < frm) or (until and iso > until):
+                    continue
+                out.append(_norm_event(r, iso, "", recurring=True, ongoing=False))
+        cur += timedelta(days=1)
+
+    seen: set[tuple[str, str, str, tuple[str, ...]]] = set()
+    uniq: list[dict[str, Any]] = []
+    for e in out:
+        key = (e["date"], e["time"], e["label"], tuple(e["members"]))
+        if key in seen:
             continue
-        row = dict(it)
-        row["ongoing"] = start < today
-        out.append(row)
-    out.sort(key=lambda r: (text(r.get("date")), text(r.get("time")), text(r.get("title"))))
-    return out
+        seen.add(key)
+        uniq.append(e)
+    uniq.sort(key=lambda x: (x["date"], x["time"], x["label"]))
+    return uniq
 
 
 def recent_entries(entries: object, today: date, keep_days: int = CHANGELOG_KEEP_DAYS) -> list[dict[str, Any]]:
-    """보관 기간(`today - keep_days` 이후) 안의 변경만. 최신이 위, 같은 날은 card → name 순.
+    """보관 창(**오늘 포함** `keep_days` 일) 안의 변경만. 최신이 위, 같은 날은 card → name 순.
 
+    바닥은 `today - (keep_days - 1)` 이다 — 7이면 오늘을 첫째 날로 세어 일곱째 날까지 남고
+    그 하루 전은 빠진다. `.github-private` 쪽과 같은 규칙이다 (2026-09-16 결정).
     만들 때도 걸러지지만 카드 데이터가 하루 이상 묵을 수 있어 그리는 쪽에서 다시 거른다.
     """
     days = keep_days if isinstance(keep_days, int) and keep_days > 0 else CHANGELOG_KEEP_DAYS
-    cutoff = today - timedelta(days=days)
+    cutoff = today - timedelta(days=days - 1)
     out: list[dict[str, Any]] = []
     for e in entries if isinstance(entries, list) else []:
         if not isinstance(e, dict):

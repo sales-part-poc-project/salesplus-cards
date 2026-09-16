@@ -238,19 +238,26 @@ code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.92em;backgrou
 .dchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .dchip{font-size:11.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
   padding:3px 9px;color:var(--muted)}
-.rtab{width:100%;border-collapse:collapse}
-.rtab td.d{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink-2);width:1%}
-.rtab td.t{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted);width:1%}
-.rtab td.w{width:1%;white-space:nowrap;color:var(--ink-2)}
-.rtab tr:last-child td{border-bottom:0}
-.ck{display:inline-block;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;
-  white-space:nowrap;margin-right:8px}
-.ck-added{background:var(--ok-soft);color:var(--ok-ink)}
-.ck-updated{background:var(--sky-soft);color:var(--sky-ink)}
-.ck-removed{background:var(--warn-soft);color:var(--warn-ink)}
-.ctype{color:var(--muted);font-size:12px;margin-right:6px}
-/* 신호 요약은 길다 — 조각 상자로 감싸 좁은 폭에서 `·` 단위로만 줄이 바뀌게 한다.
-   max-width 를 둬 조각 하나가 칸보다 길면 그 안에서 접힌다 (가로 스크롤 없음) */
+.chcard{background:var(--sky-soft);border-color:var(--sky-line)}
+.chday+.chday{margin-top:14px;padding-top:14px;border-top:1px solid var(--sky-line)}
+.chdate{display:flex;align-items:baseline;gap:8px;font-size:12.5px;font-weight:800;color:var(--sky-ink);
+  margin-bottom:9px;font-variant-numeric:tabular-nums}
+.chlist{list-style:none;padding:0;margin:0}
+.chlist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:9px;margin:0 0 9px;font-size:13.5px;line-height:1.55}
+.chlist li:last-child{margin-bottom:0}
+.ck{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;white-space:nowrap;
+  background:transparent;border:1px solid var(--sky-line);color:var(--sky-ink)}
+.ck-profile{border-color:var(--vio-ink);color:var(--vio-ink)}
+.ck-project{background:var(--sky);border-color:var(--sky);color:#fff}
+.ck-sched{border-style:dashed}
+.ck-site{border-color:var(--line-2);color:var(--muted)}
+.chkind{font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:999px}
+.chkind-added{background:var(--ok-soft);color:var(--ok-ink)}
+.chkind-removed{background:var(--warn-soft);color:var(--warn-ink)}
+.chtarget{font-weight:800;color:var(--ink)}
+.chtarget a{color:var(--sky-ink);font-weight:800;text-decoration:none;border-bottom:1px solid var(--sky-line)}
+.chtarget a:hover{border-bottom-color:var(--sky)}
+.chsum{color:var(--ink-2);flex:1 1 240px;min-width:0;word-break:keep-all;overflow-wrap:anywhere}
 .chseg{display:inline-block;max-width:100%;vertical-align:top}
 .chseg:not(:last-child)::after{content:" ·";color:var(--muted)}
 .chseg+.chseg{margin-left:5px}
@@ -291,12 +298,7 @@ a.evmem:hover{border-color:var(--brand-line);color:var(--brand-ink)}
 @media (max-width:560px){
   .evlabel{flex:1 1 100%}
   .evtime{min-width:0}
-  .rtab thead{display:none}
-  .rtab tr{display:block;padding:11px 0;border-bottom:1px solid var(--line-2)}
-  .rtab td{display:flex;gap:10px;border-bottom:0;padding:2px 0;width:auto}
-  .rtab td:empty{display:none}
-  .rtab td::before{content:attr(data-k);flex:0 0 46px;color:var(--muted);font-size:11.5px;font-weight:700;
-    line-height:1.7}
+              line-height:1.7}
 }
 
 /* 재미 코너 — HSP 로고 계열 */
@@ -964,16 +966,6 @@ def gen_chip(generated: str) -> str:
     return f'<div class="dchips"><span class="dchip">데이터 기준 {esc(generated)}</span></div>' if generated else ""
 
 
-def change_target(ctype: str, name: str, member_hrefs: dict[str, str], project_hrefs: dict[str, str]) -> str:
-    """바뀐 카드. `site` 는 대상이 없어 종류만, 프로필·프로젝트는 카드가 있으면 상세로 잇는다."""
-    label = CHANGELOG_CARD_KO.get(ctype, ctype)
-    if ctype == "site" or not name or name == label:  # 일정 카드는 이름이 곧 종류라 두 번 쓰지 않는다
-        return esc(label)
-    href = member_hrefs.get(name) if ctype == "profile" else (project_hrefs.get(name) if ctype == "project" else None)
-    who = f'<a href="{esc(href)}">{esc(name)}</a>' if href else esc(name)
-    return f'<span class="ctype">{esc(label)}</span>{who}'
-
-
 def summary_html(summary: str) -> str:
     """`·` 로 이은 요약을 조각으로 나눈다.
 
@@ -981,44 +973,59 @@ def summary_html(summary: str) -> str:
     좁은 폭에서 글자 아무 데서나 접히지 않고 **조각 단위로** 줄이 바뀌게 조각마다 상자를 준다.
     구분자는 앞 조각에 붙여(CSS `::after`) 다음 줄이 `·` 로 시작하지 않게 한다.
     """
-    parts = [p for p in (chunk.strip() for chunk in summary.split("·")) if p]
+    # 구분자는 양옆에 공백이 있는 ` · ` 뿐이다 — 값 안의 `종류·담당` 같은 바른 점은 쪼개지 않는다
+    parts = [p for p in (chunk.strip() for chunk in summary.split(" · ")) if p]
     if len(parts) < 2:
         return esc(summary)
     return "".join(f'<span class="chseg">{esc(p)}</span>' for p in parts)
 
 
-def changelog_rows(entries: list[dict[str, Any]], member_hrefs: dict[str, str], project_hrefs: dict[str, str]) -> str:
-    trs = []
-    for e in entries:
-        kind = text(e.get("kind"))
-        badge = f'<span class="ck ck-{esc(kind)}">{esc(CHANGELOG_KIND_KO.get(kind, kind))}</span>'
-        trs.append(
-            f'<tr><td class="d" data-k="날짜">{esc(day_ko_str(e.get("date")))}</td>'
-            f'<td class="w" data-k="카드">{change_target(text(e.get("card")), text(e.get("name")), member_hrefs, project_hrefs)}</td>'
-            f'<td data-k="변경">{badge}{summary_html(text(e.get("summary")))}</td></tr>'
-        )
-    return (
-        '<table class="rtab"><thead><tr><th>날짜</th><th>카드</th><th>변경</th></tr></thead>'
-        f'<tbody>{"".join(trs)}</tbody></table>'
-    )
+CHANGE_CARD_CLASS = {"profile": "ck-profile", "project": "ck-project", "schedule": "ck-sched", "site": "ck-site"}
+
+
+def change_name(ctype: str, name: str, member_hrefs: dict[str, str], project_hrefs: dict[str, str]) -> str:
+    """바뀐 카드 이름. 프로필·프로젝트 카드가 있으면 상세로 잇는다. site·일정은 이름이 없거나 종류와 같아 비운다."""
+    if ctype == "site" or not name or name == CHANGELOG_CARD_KO.get(ctype):
+        return ""
+    href = member_hrefs.get(name) if ctype == "profile" else (project_hrefs.get(name) if ctype == "project" else None)
+    who = f'<a href="{esc(href)}">{esc(name)}</a>' if href else esc(name)
+    return f'<span class="chtarget">{who}</span>'
+
+
+def changelog_days(entries: list[dict[str, Any]], today: date, member_hrefs: dict[str, str], project_hrefs: dict[str, str]) -> str:
+    """날짜별로 묶은 변경 목록 — part-cards 와 같은 모양 (2026-09-16 결정).
+
+    한 줄 = 카드 종류 칩 · 바뀐 카드 이름(상세 링크) · 요약. 신설·삭제만 작은 표식을 덧붙이고 '갱신'은 표식 없이 둔다.
+    """
+    blocks = []
+    for day, items in group_by_date(entries):
+        lis = []
+        for e in items:
+            card_kind = text(e.get("card"))
+            chip = f'<span class="ck {CHANGE_CARD_CLASS.get(card_kind, "")}">{esc(CHANGELOG_CARD_KO.get(card_kind, card_kind))}</span>'
+            target = change_name(card_kind, text(e.get("name")), member_hrefs, project_hrefs)
+            kind = text(e.get("kind"))
+            mark = f'<span class="chkind chkind-{esc(kind)}">{esc(CHANGELOG_KIND_KO.get(kind, kind))}</span>' if kind in ("added", "removed") else ""
+            lis.append(f'<li>{chip}{target}{mark}<span class="chsum">{summary_html(text(e.get("summary")))}</span></li>')
+        head = f'<div class="chdate">{esc(day_ko_str(day))}{today_mark(day, today)}</div>'
+        blocks.append(f'<div class="chday">{head}<ul class="chlist">{"".join(lis)}</ul></div>')
+    return "".join(blocks)
 
 
 def changelog_section(
     data: dict[str, Any] | None, today: date, member_hrefs: dict[str, str], project_hrefs: dict[str, str]
 ) -> str:
-    """최근 변경 — 7일. 파일 자체가 없으면 한 줄만 남긴다."""
+    """최근 변경 — 7일. 파일 자체가 없으면 한 줄만 남긴다. 목록 맨 아래 섹션."""
     if data is None:
         body = card("", '<p class="empty" style="margin:0">아직 변경 기록이 없다. salesplus-wiki 에서 카드가 한 번 더 갱신되면 여기에 쌓인다.</p>')
         return sec("sec-chg", "카드 이력", "최근 변경 — 7일", body)
     keep = int(num(data.get("keep_days"), CHANGELOG_KEEP_DAYS)) or CHANGELOG_KEEP_DAYS
     entries = recent_entries(data.get("entries"), today, keep)
-    inner = (
-        changelog_rows(entries, member_hrefs, project_hrefs)
-        if entries
-        else '<p class="empty" style="margin:0">지난 7일간 카드 변경 없음</p>'
-    )
-    body = card("", gen_chip(text(data.get("generated"))) + inner)
-    return sec("sec-chg", "카드 이력", "최근 변경 — 7일", body, "무엇이 바뀌었는지만 적는다 · 값은 싣지 않는다")
+    if entries:
+        body = f'<div class="card chcard">{changelog_days(entries, today, member_hrefs, project_hrefs)}</div>'
+    else:
+        body = card("", '<p class="empty" style="margin:0">지난 7일간 카드 변경 없음</p>')
+    return sec("sec-chg", "카드 이력", "최근 변경 — 7일", body, "카드가 언제 무엇 때문에 바뀌었나 · 한 사람당 한 줄")
 
 
 def event_members(names: list[str], member_hrefs: dict[str, str]) -> str:
@@ -1147,7 +1154,7 @@ def render_index(
             f'<div class="warnbox skips"><h3>검증에서 건너뛴 파일 {len(skipped)}건</h3><ul>{items}</ul>'
             '<p style="margin-top:9px">한 건 때문에 전체가 막히지 않도록 그 파일만 빼고 빌드했다. 고치면 다음 빌드에 다시 들어온다.</p></div>'
         )
-    body = hero + banner_html() + '<main class="wrap">' + s_chg + s_sched + s_projects + s_members + skips + footer_html(part, built) + "</main>"
+    body = hero + banner_html() + '<main class="wrap">' + s_sched + s_projects + s_members + s_chg + skips + footer_html(part, built) + "</main>"
     return html_doc(f"{part} 멤버 프로필 · 프로젝트", body)
 
 

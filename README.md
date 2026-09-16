@@ -18,7 +18,7 @@ salesplus-wiki/data/schedule.json    ─┤→ cards_data.py (검증) → build_
 salesplus-wiki/data/changelog.json   ─┘
 ```
 
-index 의 순서는 **변경사항 → 파트 일정 → 프로젝트 → 멤버** 다 (2026-09-16 결정 — 변경사항이 가장 중요하다).
+index 의 순서는 **파트 일정 → 프로젝트 → 멤버 → 최근 변경** 이다 (2026-09-16 결정 — 변경사항은 줄 수가 많아 맨 아래로 내렸다).
 일정의 "업무일 2일" 창은 JSON 에 없고 **빌드 시각 기준으로 여기서 계산한다** — 위키의 `build_schedule.py` ·
 `.github-private` 의 `update_cards.py` 와 규칙이 같아야 한다 (`scripts/cards_data.py` 의 `business_window` · `events_in_window`).
 기준일이 업무일이면 그날이 첫째 날, 아니면 다음 업무일이 첫째 날이고, 창은 거기서부터 업무일 2일이다 (목 → 목·금, 금 → 금·월, 토 → 월·화).

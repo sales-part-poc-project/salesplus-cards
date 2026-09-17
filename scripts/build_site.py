@@ -134,7 +134,9 @@ CSS = """
   --vio-ink:#6A1AA8; --vio-soft:#F1E8FB;
   --warn-ink:#7A4B00; --warn-soft:#FFF1CF; --warn-line:#F2D48A;
   --ok-ink:#176E47; --ok-soft:#E2F4EA;
-  --hero-ink:#FFFFFF; --hero-base:#D2341A; --avatar-ink:#FFFFFF;
+  --hero-ink:#3A1F16; --hero-sub:#5E453B; --hero-base:#FBEBE2; --hero-amber:rgba(255,205,120,.55);
+  --hero-sky:#C6E3F8; --hero-chip:rgba(255,255,255,.78); --hero-pill:rgba(190,47,20,.08); --hero-pill-line:rgba(190,47,20,.2);
+  --avatar-ink:#FFFFFF;
   --shadow:0 1px 2px rgba(28,21,18,.04),0 10px 28px -14px rgba(201,46,23,.16);
   --shadow-hover:0 2px 4px rgba(28,21,18,.05),0 18px 36px -16px rgba(201,46,23,.32);
   --r-lg:22px; --r-md:16px; --r-sm:11px;
@@ -152,7 +154,9 @@ CSS = """
     --vio-ink:#CDB0F8; --vio-soft:#2A1C3D;
     --warn-ink:#FFD077; --warn-soft:#3A2A10; --warn-line:#6B4E1B;
     --ok-ink:#7EE0AC; --ok-soft:#133224;
-    --hero-ink:#FFFFFF; --hero-base:#D2341A; --avatar-ink:#141010;
+    --hero-ink:#F7E9E1; --hero-sub:#D9C3B8; --hero-base:#2C1A15; --hero-amber:rgba(255,181,17,.16);
+    --hero-sky:#2B4E68; --hero-chip:rgba(20,16,16,.5); --hero-pill:rgba(255,255,255,.08); --hero-pill-line:rgba(255,255,255,.18);
+    --avatar-ink:#141010;
     --shadow:0 1px 2px rgba(0,0,0,.3);
     --shadow-hover:0 6px 24px -10px rgba(0,0,0,.6);
   }
@@ -175,34 +179,34 @@ code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.92em;backgrou
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 .wrap{max-width:1040px;margin:0 auto;padding:0 20px 72px}
 
-/* 히어로 — 로고의 구성(주황 몸통·우상단 앰버·모서리 블루)을 그대로 배경으로 */
+/* 히어로 — 로고의 구성(주황 몸통·우상단 앰버·모서리 블루)을 파스텔로 옅게 (2026-09-17: 원색 그대로는 너무 강렬하다는 피드백) */
 .hero{position:relative;overflow:hidden;isolation:isolate;color:var(--hero-ink);
   background:var(--hero-base);
   background-image:
-    radial-gradient(90% 120% at 100% 0%,rgba(255,181,17,.95) 0%,rgba(255,181,17,.55) 18%,rgba(255,181,17,0) 46%),
-    linear-gradient(128deg,#F35119 0%,#E8431B 46%,#CC2F19 100%);
+    radial-gradient(90% 120% at 100% 0%,var(--hero-amber) 0%,transparent 48%),
+    linear-gradient(128deg,color-mix(in srgb,var(--hero-base) 88%,#FFB511) 0%,var(--hero-base) 46%,color-mix(in srgb,var(--hero-base) 90%,#E8431B) 100%);
   padding:46px 0 40px}
 .hero::before{content:"";position:absolute;z-index:-1;right:-5%;top:-42%;width:min(32vw,320px);aspect-ratio:1;
-  border-radius:50%;background:var(--sky);opacity:.92}
+  border-radius:50%;background:var(--hero-sky);opacity:.9}
 .hero .in{max-width:1040px;margin:0 auto;padding:0 20px;position:relative}
 .hero-eyebrow{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.02em;
-  background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;
+  background:var(--hero-pill);border:1px solid var(--hero-pill-line);border-radius:999px;
   padding:4px 11px;margin-bottom:14px;backdrop-filter:blur(6px)}
 .hero-title{font-size:clamp(30px,6.4vw,54px);font-weight:800;line-height:1.05;letter-spacing:-.04em}
-.hero-sub{font-size:14.5px;color:rgba(255,255,255,.94);margin-top:14px;max-width:62ch;line-height:1.6}
+.hero-sub{font-size:14.5px;color:var(--hero-sub);margin-top:14px;max-width:62ch;line-height:1.6}
 .hero-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:20px}
-.hero-chips .chip{background:rgba(255,255,255,.92);color:var(--brand-deep);border:0;
+.hero-chips .chip{background:var(--hero-chip);color:var(--brand-deep);border:1px solid var(--hero-pill-line);
   border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:600;max-width:100%;
-  box-shadow:0 1px 0 rgba(0,0,0,.08)}
+  box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .hero-chips .chip b{color:#8C2410;font-weight:700;margin-right:6px;font-size:11px}
 @media (prefers-color-scheme:dark){
-  .hero-chips .chip{background:rgba(20,16,16,.55);color:#fff;border:1px solid rgba(255,255,255,.2);box-shadow:none}
+  .hero-chips .chip{color:#fff;box-shadow:none}
   .hero-chips .chip b{color:#FFD3B8}
 }
-.back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,.9);
+.back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--hero-ink);
   text-decoration:none;margin-bottom:18px;padding:5px 11px 5px 8px;border-radius:999px;
-  background:rgba(0,0,0,.14);transition:background .15s}
-.back:hover{background:rgba(0,0,0,.26);color:#fff}
+  background:var(--hero-pill);border:1px solid var(--hero-pill-line);transition:background .15s}
+.back:hover{background:var(--hero-chip);color:var(--hero-ink)}
 
 /* 상단 고정 안내 */
 .banner{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--surface) 88%,transparent);

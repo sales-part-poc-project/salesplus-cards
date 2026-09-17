@@ -1,9 +1,9 @@
-# salesplus-cards — 세일즈플러스파트 멤버 · 프로젝트 카드 사이트
+# salesplus-cards — 세일즈플러스파트 업무 요약 · 일정 · 프로젝트 · 멤버 카드 사이트
 
 **https://sales-part-poc-project.github.io/salesplus-cards/**
 
 [`salesplus-wiki`](https://github.com/sales-part-poc-project/salesplus-wiki)(private) 의 `data/profiles/*.json` · `data/projects/*.json` ·
-`data/schedule.json` · `data/changelog.json` 을 읽어
+`data/daily.json` · `data/schedule.json` · `data/changelog.json` 을 읽어
 정적 HTML 로 그리고 GitHub Pages 로 배포한다. 이 저장소에는 **코드만** 있고 데이터는 없다 — 카드 내용은 위키 저장소에서 고친다.
 
 > ⚠️ 이 저장소와 사이트는 **public** 이다. 조직 private 저장소의 Pages 는 유료 플랜에서만 되기 때문에 사이트만 따로 뗐다.
@@ -39,7 +39,7 @@ index 의 순서는 **파트 일정 → 프로젝트 → 멤버 → 최근 변�
 
 ## 무엇이 나가나
 
-- 무엇을 싣고 뺄지는 salesplus-wiki 의 `docs/PRIVACY.md` · `docs/PROFILE_SCHEMA.md` · `docs/PROJECT_SCHEMA.md` · `docs/SCHEDULE_SCHEMA.md` · `docs/CHANGELOG_SCHEMA.md` 가 정한다
+- 무엇을 싣고 뺄지는 salesplus-wiki 의 `docs/PRIVACY.md` · `docs/PROFILE_SCHEMA.md` · `docs/PROJECT_SCHEMA.md` · `docs/DAILY_SCHEMA.md` · `docs/SCHEDULE_SCHEMA.md` · `docs/CHANGELOG_SCHEMA.md` 가 정한다
 - 링크·전화번호·이메일·주민번호 형태·원문 인용 키가 있으면 **그 파일만** 건너뛰고 index 하단에 사유를 남긴다
 - MBTI·나이대는 추측이라 근거 강도가 붙는다. 본인이 원하면 위키에서 자기 JSON 의 `fun` 을 `null` 로 둔다
 - 카드가 0건이어도 사이트는 만들어진다

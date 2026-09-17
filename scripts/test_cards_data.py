@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""파트 일정·변경사항 카드의 규칙 검증 (salesplus-wiki/docs/SCHEDULE_SCHEMA.md · CHANGELOG_SCHEMA.md).
+"""업무 요약·파트 일정·변경사항 카드의 규칙 검증 (salesplus-wiki/docs/DAILY_SCHEMA.md · SCHEDULE_SCHEMA.md · CHANGELOG_SCHEMA.md).
 
     python3 -m unittest discover -s scripts -p 'test_*.py'
 
@@ -24,8 +24,11 @@ from cards_data import (  # noqa: E402
     events_in_window,
     holiday_set,
     load_local,
+    recent_days,
     recent_entries,
+    schedule_anchor,
     validate_changelog,
+    validate_daily,
     validate_schedule,
 )
 
@@ -37,6 +40,13 @@ SAT = date(2026, 9, 19)  # 토
 
 def sched(**over) -> dict:
     base = {"schema_version": 1, "generated": "2026-09-16", "holidays": [], "events": [], "recurring": []}
+    base.update(over)
+    return base
+
+
+def daily(**over) -> dict:
+    base = {"schema_version": 1, "generated": "2026-09-18", "keep_days": 2,
+            "days": [{"date": "2026-09-17", "rooms": [{"room": "파트방", "items": ["결정: A"]}]}]}
     base.update(over)
     return base
 
@@ -237,6 +247,97 @@ class RecentEntries(unittest.TestCase):
         self.assertEqual(recent_entries([self.entry("어제")], WED, 7), [])
 
 
+class ScheduleAnchor(unittest.TestCase):
+    """파트 일정 카드는 오늘을 뺀 내일·모레 — 창 함수는 그대로, 기준일만 하루 뒤 (2026-09-17 결정)."""
+
+    def test_목요일_기준이면_금_월(self):
+        self.assertEqual(business_window(schedule_anchor(THU)), (FRI, date(2026, 9, 21)))
+
+    def test_금요일_기준이면_월_화(self):
+        self.assertEqual(business_window(schedule_anchor(FRI)), (date(2026, 9, 21), date(2026, 9, 22)))
+
+    def test_내일이_휴일이면_그_다음_업무일부터(self):
+        self.assertEqual(business_window(schedule_anchor(THU), ["2026-09-18"]), (date(2026, 9, 21), date(2026, 9, 22)))
+
+    def test_오늘_일정은_빠지고_오늘_시작한_기간_일정은_진행_중(self):
+        rows = events_in_window(sched(events=[ev("2026-09-17", "오늘"), ev("2026-09-17", "이틀", end="2026-09-18")]),
+                                schedule_anchor(THU))
+        self.assertEqual([(r["label"], r["ongoing"]) for r in rows], [("이틀", True)])
+
+    def test_done_은_단발에만_실린다(self):
+        rows = events_in_window(sched(events=[ev("2026-09-18", "배포", done=True)],
+                                      recurring=[rec([4], "스크럼", done=True)]), FRI)
+        self.assertEqual({r["label"]: r["done"] for r in rows}, {"배포": True, "스크럼": False})
+        self.assertFalse(events_in_window(sched(events=[ev("2026-09-18", "배포")]), FRI)[0]["done"])
+
+
+class ValidateDaily(unittest.TestCase):
+    """업무 요약 카드 — 날짜별 묶음, 방별 문자열 줄 (docs/DAILY_SCHEMA.md)."""
+
+    def test_정상(self):
+        self.assertEqual(validate_daily(daily(), "daily"), [])
+
+    def test_days_가_없으면_빈_배열로_본다(self):
+        d = daily(); del d["days"]
+        self.assertEqual(validate_daily(d, "daily"), [])
+
+    def test_schema_version(self):
+        self.assertTrue(any("schema_version" in e for e in validate_daily(daily(schema_version=2), "daily")))
+
+    def test_days_가_배열이_아니면_거부(self):
+        self.assertTrue(any("days:" in e for e in validate_daily(daily(days={}), "daily")))
+
+    def test_날짜_형식(self):
+        errs = validate_daily(daily(days=[{"date": "9/17", "rooms": []}]), "daily")
+        self.assertTrue(any("days[0].date" in e for e in errs))
+
+    def test_방_이름이_비면_거부(self):
+        errs = validate_daily(daily(days=[{"date": "2026-09-17", "rooms": [{"room": "", "items": ["a"]}]}]), "daily")
+        self.assertTrue(any(".room" in e for e in errs))
+
+    def test_빈_줄과_문자열_아닌_줄은_거부(self):
+        errs = validate_daily(daily(days=[{"date": "2026-09-17", "rooms": [{"room": "파트방", "items": ["", 3]}]}]), "daily")
+        self.assertEqual(len([e for e in errs if ".items[" in e]), 2)
+
+    def test_items_가_없어도_된다(self):
+        self.assertEqual(validate_daily(daily(days=[{"date": "2026-09-17", "rooms": [{"room": "오퍼링"}]}]), "daily"), [])
+
+    def test_keep_days_는_1_이상의_정수(self):
+        self.assertTrue(any("keep_days" in e for e in validate_daily(daily(keep_days=0), "daily")))
+
+    def test_URL_은_거부(self):
+        d = daily(days=[{"date": "2026-09-17", "rooms": [{"room": "파트방", "items": ["보기 https://x.y"]}]}])
+        self.assertTrue(any("URL" in e for e in validate_daily(d, "daily")))
+
+    def test_금지_키는_거부(self):
+        d = daily(days=[{"date": "2026-09-17", "rooms": [{"room": "파트방", "items": ["a"], "quotes": ["원문"]}]}])
+        self.assertTrue(any("금지 키" in e for e in validate_daily(d, "daily")))
+
+    def test_객체가_아니면_거부(self):
+        self.assertTrue(validate_daily([], "daily"))
+
+
+class RecentDays(unittest.TestCase):
+    DAYS = [{"date": "2026-09-15", "rooms": []}, {"date": "2026-09-17", "rooms": []},
+            {"date": "2026-09-16", "rooms": []}, {"date": "x", "rooms": []}, "no"]
+
+    def test_최신_2일치_최신이_위(self):
+        self.assertEqual([d["date"] for d in recent_days(self.DAYS, FRI)], ["2026-09-17", "2026-09-16"])
+
+    def test_keep_days_를_따른다(self):
+        self.assertEqual(len(recent_days(self.DAYS, FRI, 3)), 3)
+        self.assertEqual(len(recent_days(self.DAYS, FRI, 0)), 2)  # 이상하면 기본 2일
+
+    def test_먼_미래는_버린다(self):
+        days = [{"date": "2026-09-19", "rooms": []}, {"date": "2026-09-30", "rooms": []}]
+        self.assertEqual([d["date"] for d in recent_days(days, FRI)], ["2026-09-19"])  # 하루 앞은 시계 차이로 본다
+
+    def test_원본을_건드리지_않는다(self):
+        before = json.dumps(self.DAYS, ensure_ascii=False)
+        recent_days(self.DAYS, FRI)
+        self.assertEqual(json.dumps(self.DAYS, ensure_ascii=False), before)
+
+
 class ValidateSchedule(unittest.TestCase):
     """docs/SCHEDULE_SCHEMA.md '검증 — 거부되는 조건' 여섯 항목."""
 
@@ -383,7 +484,7 @@ class ValidateChangelog(unittest.TestCase):
 
 
 class LoadLocalSingleFiles(unittest.TestCase):
-    """data/schedule.json · data/changelog.json 은 폴더가 아니라 한 파일에 한 카드다."""
+    """data/daily.json · data/schedule.json · data/changelog.json 은 폴더가 아니라 한 파일에 한 카드다."""
 
     def test_있으면_읽고_없으면_건너뛴다(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -396,6 +497,17 @@ class LoadLocalSingleFiles(unittest.TestCase):
             self.assertTrue(kinds["schedule"].ok)
             self.assertEqual(kinds["schedule"].file, "schedule.json")
             self.assertNotIn("changelog", kinds)  # 없으면 경고만 남기고 건너뛴다
+            self.assertNotIn("daily", kinds)
+
+    def test_업무_요약_카드도_한_파일이다(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "data" / "profiles").mkdir(parents=True)
+            (root / "data" / "projects").mkdir(parents=True)
+            (root / "data" / "daily.json").write_text(json.dumps(daily(), ensure_ascii=False), encoding="utf-8")
+            kinds = {c.kind: c for c in load_local(root)}
+            self.assertTrue(kinds["daily"].ok)
+            self.assertEqual(kinds["daily"].file, "daily.json")
 
     def test_깨진_파일은_그_카드만_건너뛴다(self):
         with tempfile.TemporaryDirectory() as tmp:

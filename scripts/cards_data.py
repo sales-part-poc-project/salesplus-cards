@@ -2,10 +2,10 @@
 """salesplus-wiki 의 data/ 카드를 읽고 스키마를 검증한다 — 렌더링은 build_site.py 가 맡는다.
 
 데이터는 salesplus-wiki(private) 의 `data/profiles/*.json` · `data/projects/*.json` (폴더당 한 카드)와
-`data/schedule.json` · `data/changelog.json` (한 파일에 한 카드)이다.
+`data/schedule.json` · `data/changelog.json` · `data/daily.json` (한 파일에 한 카드)이다.
 위키 본문(projects/·members/·raw/)은 읽지 않는다 — 카드는 사람이 공개 범위를 골라 다시 쓴 요약이다.
 스키마·공개 범위는 그 저장소의 docs/PROFILE_SCHEMA.md · docs/PROJECT_SCHEMA.md · docs/SCHEDULE_SCHEMA.md ·
-docs/CHANGELOG_SCHEMA.md · docs/PRIVACY.md. 검증 규칙과 업무일 창 계산은 `.github-private/scripts/update_cards.py`
+docs/CHANGELOG_SCHEMA.md · docs/DAILY_SCHEMA.md · docs/PRIVACY.md. 검증 규칙과 업무일 창 계산은 `.github-private/scripts/update_cards.py`
 와 같아야 한다.
 
 환경변수·옵션은 이 모듈을 쓰는 build_site.py 가 읽는다 (GH_TOKEN · ORG · WIKI_REPO · WIKI_REF · --local).
@@ -133,6 +133,13 @@ ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # 파트 일정 · 변경사항 (salesplus-wiki/docs/SCHEDULE_SCHEMA.md · docs/CHANGELOG_SCHEMA.md).
 # 한 파일에 한 카드라, 어긋나면 그 섹션만 빠지고 나머지 카드는 그대로 나온다.
 SCHEDULE_WINDOW_DAYS = 2  # 업무일 2일 — 기준일이 업무일이면 기준일이 첫째 날이다
+# 파트 일정 카드는 **오늘을 뺀** 다음 업무일 2일(내일·모레)을 보여준다 (2026-09-17 결정). 오늘 일은
+# "오늘 업무 요약" 카드가 말한다. 창 계산 함수(`business_window`)는 그대로 두고 기준일만 하루 뒤로 민다 —
+# 위키의 텔레그램 일일 요약(`build_schedule.schedule_summary`)과 같은 앵커다.
+SCHEDULE_SKIP_TODAY_DAYS = 1
+# 업무 요약 카드 (docs/DAILY_SCHEMA.md) — 날짜별 묶음, 최근 2일치(어제·오늘). 방 이름은 별칭이다 (파트방 · 오퍼링).
+DAILY_KEEP_DAYS = 2
+DAILY_MAX_ITEMS = 12
 _WINDOW_SCAN_LIMIT = 400  # 휴일 목록이 잘못 채워져도 무한히 돌지 않게
 EVENT_KINDS = ("회의", "근태", "보고", "행사", "마감", "배포", "기타")
 CHANGELOG_KEEP_DAYS = 7
@@ -366,6 +373,73 @@ def validate_changelog(data: object, stem: str) -> list[str]:
     return errors
 
 
+def validate_daily(data: object, stem: str) -> list[str]:
+    """거부 사유 목록. 빈 리스트면 통과 (docs/DAILY_SCHEMA.md '검증').
+
+    `days[].rooms[].items` 는 사람이 쓴 요약 줄이라 금지 패턴(URL·전화·이메일) 검사가 핵심이다 — 위키 쪽이
+    정화하지만 공개 사이트는 스스로 한 번 더 본다.
+    """
+    if not isinstance(data, dict):
+        return [f"최상위가 객체가 아닙니다 (현재 {type(data).__name__})"]
+    errors = _common_errors(data, stem, check_name=False)
+    keep = data.get("keep_days")
+    if keep is not None and (not isinstance(keep, int) or isinstance(keep, bool) or keep < 1):
+        errors.append(f"keep_days: 1 이상의 정수여야 합니다 (현재 {keep!r})")
+    days = data.get("days")
+    if days is None:
+        return errors  # 없으면 빈 배열로 본다
+    if not isinstance(days, list):
+        errors.append("days: 배열이어야 합니다")
+        return errors
+    for i, d in enumerate(days):
+        where = f"days[{i}]"
+        if not isinstance(d, dict):
+            errors.append(f"{where}: 객체가 필요합니다")
+            continue
+        errors.extend(_date_errors(d.get("date"), f"{where}.date"))
+        rooms = d.get("rooms")
+        if rooms is None:
+            continue
+        if not isinstance(rooms, list):
+            errors.append(f"{where}.rooms: 배열이어야 합니다")
+            continue
+        for j, r in enumerate(rooms):
+            rw = f"{where}.rooms[{j}]"
+            if not isinstance(r, dict):
+                errors.append(f"{rw}: 객체가 필요합니다")
+                continue
+            if not text(r.get("room")):
+                errors.append(f"{rw}.room: 비어 있습니다 (방 별칭)")
+            items = r.get("items")
+            if items is None:
+                continue
+            if not isinstance(items, list):
+                errors.append(f"{rw}.items: 문자열 배열이어야 합니다")
+                continue
+            for k, it in enumerate(items):
+                if not isinstance(it, str) or not it.strip():
+                    errors.append(f"{rw}.items[{k}]: 비어 있지 않은 문자열이어야 합니다")
+    return errors
+
+
+def recent_days(days: object, today: date, keep_days: int = DAILY_KEEP_DAYS) -> list[dict[str, Any]]:
+    """업무 요약의 날짜 묶음 — 최신이 위, `keep_days` 개만. 미래 날짜는 버린다 (시계 차이는 하루를 넘지 않는다).
+
+    위키가 이미 2일치로 잘라 두지만 카드 데이터가 묵을 수 있어 그리는 쪽에서 다시 거른다.
+    """
+    keep = keep_days if isinstance(keep_days, int) and keep_days > 0 else DAILY_KEEP_DAYS
+    out: list[tuple[date, dict[str, Any]]] = []
+    for d in days if isinstance(days, list) else []:
+        if not isinstance(d, dict):
+            continue
+        when = parse_date(d.get("date"))
+        if when is None or when > today + timedelta(days=1):
+            continue
+        out.append((when, dict(d)))
+    out.sort(key=lambda x: x[0], reverse=True)
+    return [d for _, d in out[:keep]]
+
+
 # ────────────────────────────────────────────────── 업무일 규칙 (SCHEDULE_SCHEMA.md)
 # 카드 빌드는 매일 돌고 위키는 매일 바뀌지 않으므로, 표시 창은 JSON 에 넣지 않고 그리는 쪽이
 # 빌드 시각(KST) 기준으로 계산한다. 위키의 build_schedule.py · .github-private 의 update_cards.py
@@ -418,6 +492,15 @@ def business_window(today: date, holidays: object = (), days: int = SCHEDULE_WIN
     return start, cur
 
 
+def schedule_anchor(today: date) -> date:
+    """파트 일정 카드의 기준일 — 오늘 다음 날. `business_window(schedule_anchor(today))` 가 내일·모레 창이다.
+
+    오늘이 목요일이면 금·월, 금요일이면 월·화, 내일이 휴일이면 그 다음 업무일부터. 오늘 시작해 내일까지
+    걸린 일정은 창 시작 전에 시작했으므로 `ongoing` 으로 표시된다.
+    """
+    return today + timedelta(days=SCHEDULE_SKIP_TODAY_DAYS)
+
+
 def _norm_event(e: dict[str, Any], day: str, end: str, recurring: bool, ongoing: bool) -> dict[str, Any]:
     """카드가 읽는 한 줄. 렌더러가 키를 뒤지지 않게 events·recurring 을 같은 모양으로 편다."""
     return {
@@ -431,6 +514,8 @@ def _norm_event(e: dict[str, Any], day: str, end: str, recurring: bool, ongoing:
         "project": text(e.get("project")),
         "recurring": recurring,
         "ongoing": ongoing,
+        # 위키가 `~~취소선~~`·✅ 행에 붙인다 — 카드는 취소선으로 그린다 (docs/SCHEDULE_SCHEMA.md). 반복 일정에는 없다
+        "done": bool(e.get("done")) and not recurring,
     }
 
 
@@ -537,13 +622,13 @@ def badge_short(badge: object) -> str:
 # ───────────────────────────────────────────────────────────────────────── 적재
 
 
-SINGLE_FILES = (("schedule", "schedule.json"), ("changelog", "changelog.json"))  # 한 파일에 한 카드
+SINGLE_FILES = (("daily", "daily.json"), ("schedule", "schedule.json"), ("changelog", "changelog.json"))  # 한 파일에 한 카드
 
 
 @dataclass
 class Card:
-    kind: str  # "profile" | "project" | "schedule" | "changelog"
-    file: str  # 표시용 경로 (profiles/이현진.json · schedule.json)
+    kind: str  # "profile" | "project" | "schedule" | "changelog" | "daily"
+    file: str  # 표시용 경로 (profiles/이현진.json · schedule.json · daily.json)
     data: dict[str, Any] | None
     errors: list[str] = field(default_factory=list)
 
@@ -557,6 +642,7 @@ VALIDATORS = {
     "project": validate_project,
     "schedule": validate_schedule,
     "changelog": validate_changelog,
+    "daily": validate_daily,
 }
 
 

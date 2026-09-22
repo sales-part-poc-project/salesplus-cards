@@ -1068,7 +1068,7 @@ def event_members(names: list[str], member_hrefs: dict[str, str]) -> str:
 
 
 def clamp_to_window(events: list[dict[str, Any]], start: date) -> list[dict[str, Any]]:
-    """창 앞에서 시작한(진행 중) 일정은 창 첫날 묶음에 넣는다 — "내일·모레" 섹션에 어제·오늘 묶음이 생기지 않게.
+    """창 앞에서 시작한(진행 중) 일정은 창 첫날 묶음에 넣는다 — "오늘·내일" 섹션에 어제 묶음이 생기지 않게.
 
     기간 표시(`9/17(목)~9/18(금)`)는 원래 시작일을 써야 하므로 `begun` 에 남긴다.
     """
@@ -1117,12 +1117,13 @@ def holiday_note(data: dict[str, Any], start: date, end: date) -> str:
 
 
 def schedule_section(data: dict[str, Any] | None, today: date, member_hrefs: dict[str, str]) -> str:
-    """파트 일정 — 오늘을 뺀 다음 업무일 2일(내일·모레). 창은 빌드 시각 기준으로 여기서 계산한다.
+    """파트 일정 — 오늘부터 업무일 2일(오늘·내일). 창은 빌드 시각 기준으로 여기서 계산한다.
 
-    기준일은 `schedule_anchor(today)`(오늘 다음 날)다 — 오늘 일은 "오늘 업무 요약" 카드가 말한다 (2026-09-17 결정).
+    기준일은 `schedule_anchor(today)`(오늘)다. 오늘 처리한 일은 위키가 `done` 을 붙여 취소선 + "완료" 칩으로
+    그려진다 (2026-09-22 결정).
     "데이터 없음"과 "창 안에 일정 없음"은 다른 문구다 — 파일이 빠진 것과 잡힌 일정이 없는 것은 다르다.
     """
-    title = "파트 일정 — 내일 · 모레"
+    title = "파트 일정 — 오늘 · 내일"
     if data is None:
         body = card("", '<p class="empty" style="margin:0">아직 일정 데이터가 없다. salesplus-wiki 의 data/schedule.json 이 생기면 여기에 뜬다.</p>')
         return sec("sec-sched", "위키 요약", title, body)
@@ -1136,7 +1137,7 @@ def schedule_section(data: dict[str, Any] | None, today: date, member_hrefs: dic
     )
     body = card("", inner + holiday_note(data, start, end))
     generated = text(data.get("generated"))
-    subtitle = f"{day_ko(start)} ~ {day_ko(end)} · 업무일 {SCHEDULE_WINDOW_DAYS}일 · 오늘 제외"
+    subtitle = f"{day_ko(start)} ~ {day_ko(end)} · 업무일 {SCHEDULE_WINDOW_DAYS}일"
     if generated:
         subtitle += f" · 데이터 기준 {generated}"
     return sec("sec-sched", "위키 요약", title, body, subtitle)
@@ -1188,7 +1189,7 @@ def daily_section(data: dict[str, Any] | None, today: date) -> str:
 
 
 def upcoming_count(data: dict[str, Any] | None, today: date) -> int:
-    """내일·모레 창의 일정 수 — 파트 일정 섹션과 같은 앵커."""
+    """오늘·내일 창의 일정 수 — 파트 일정 섹션과 같은 앵커."""
     return len(events_in_window(data, schedule_anchor(today))) if data is not None else 0
 
 
@@ -1237,7 +1238,7 @@ def render_index(
     else:
         pcards = card("", '<p class="empty" style="margin:0">아직 프로젝트 카드가 없다. salesplus-wiki 의 data/projects/ 에 채운다.</p>')
     s_projects = '<div id="projects"></div>' + sec("sec-proj", "위키 요약", "프로젝트", pcards, "진행률은 마일스톤 완료 수 · 확정 계획이 아니다")
-    # 순서는 오늘 업무 요약 → 파트 일정(내일·모레) → 프로젝트 → 멤버 → 최근 변경 (2026-09-17 결정)
+    # 순서는 오늘 업무 요약 → 파트 일정(오늘·내일) → 프로젝트 → 멤버 → 최근 변경 (2026-09-17 결정, 창은 2026-09-22)
     s_daily = daily_section(daily, today)
     s_chg = changelog_section(changelog, today, member_hrefs, project_hrefs)
     s_sched = schedule_section(schedule, today, member_hrefs)

@@ -248,21 +248,25 @@ class RecentEntries(unittest.TestCase):
 
 
 class ScheduleAnchor(unittest.TestCase):
-    """파트 일정 카드는 오늘을 뺀 내일·모레 — 창 함수는 그대로, 기준일만 하루 뒤 (2026-09-17 결정)."""
+    """파트 일정 카드는 오늘·내일 — 기준일이 오늘이다 (2026-09-22 결정, 2026-09-17 의 내일·모레를 되돌림)."""
 
-    def test_목요일_기준이면_금_월(self):
-        self.assertEqual(business_window(schedule_anchor(THU)), (FRI, date(2026, 9, 21)))
+    def test_목요일_기준이면_목_금(self):
+        self.assertEqual(business_window(schedule_anchor(THU)), (THU, FRI))
 
-    def test_금요일_기준이면_월_화(self):
-        self.assertEqual(business_window(schedule_anchor(FRI)), (date(2026, 9, 21), date(2026, 9, 22)))
+    def test_금요일_기준이면_금_월(self):
+        self.assertEqual(business_window(schedule_anchor(FRI)), (FRI, date(2026, 9, 21)))
 
-    def test_내일이_휴일이면_그_다음_업무일부터(self):
-        self.assertEqual(business_window(schedule_anchor(THU), ["2026-09-18"]), (date(2026, 9, 21), date(2026, 9, 22)))
+    def test_오늘이_휴일이면_다음_업무일부터(self):
+        self.assertEqual(business_window(schedule_anchor(THU), ["2026-09-17"]), (FRI, date(2026, 9, 21)))
 
-    def test_오늘_일정은_빠지고_오늘_시작한_기간_일정은_진행_중(self):
-        rows = events_in_window(sched(events=[ev("2026-09-17", "오늘"), ev("2026-09-17", "이틀", end="2026-09-18")]),
+    def test_오늘_일정이_들어오고_진행_중이_아니다(self):
+        rows = events_in_window(sched(events=[ev("2026-09-17", "오늘"), ev("2026-09-16", "어제부터", end="2026-09-18")]),
                                 schedule_anchor(THU))
-        self.assertEqual([(r["label"], r["ongoing"]) for r in rows], [("이틀", True)])
+        self.assertEqual([(r["label"], r["ongoing"]) for r in rows], [("어제부터", True), ("오늘", False)])
+
+    def test_오늘_처리한_일은_done_으로_창에_남는다(self):
+        rows = events_in_window(sched(events=[ev("2026-09-17", "오늘 배포", done=True)]), schedule_anchor(THU))
+        self.assertEqual([(r["label"], r["done"]) for r in rows], [("오늘 배포", True)])
 
     def test_done_은_단발에만_실린다(self):
         rows = events_in_window(sched(events=[ev("2026-09-18", "배포", done=True)],

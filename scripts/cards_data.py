@@ -133,10 +133,9 @@ ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # 파트 일정 · 변경사항 (salesplus-wiki/docs/SCHEDULE_SCHEMA.md · docs/CHANGELOG_SCHEMA.md).
 # 한 파일에 한 카드라, 어긋나면 그 섹션만 빠지고 나머지 카드는 그대로 나온다.
 SCHEDULE_WINDOW_DAYS = 2  # 업무일 2일 — 기준일이 업무일이면 기준일이 첫째 날이다
-# 파트 일정 카드는 **오늘을 뺀** 다음 업무일 2일(내일·모레)을 보여준다 (2026-09-17 결정). 오늘 일은
-# "오늘 업무 요약" 카드가 말한다. 창 계산 함수(`business_window`)는 그대로 두고 기준일만 하루 뒤로 민다 —
-# 위키의 텔레그램 일일 요약(`build_schedule.schedule_summary`)과 같은 앵커다.
-SCHEDULE_SKIP_TODAY_DAYS = 1
+# 파트 일정 카드는 **오늘부터** 업무일 2일(오늘·내일)을 보여준다 (2026-09-22 결정 — 2026-09-17 의 "내일·모레"를
+# 되돌렸다. 오늘 처리한 일이 `done` 취소선으로 보여야 해서). 창 계산 함수(`business_window`)는 그대로고,
+# 위키의 `build_schedule.schedule_summary` · 조직 README 와 같은 앵커다.
 # 업무 요약 카드 (docs/DAILY_SCHEMA.md) — 날짜별 묶음, 최근 2일치(어제·오늘). 방 이름은 별칭이다 (파트방 · 오퍼링).
 DAILY_KEEP_DAYS = 2
 DAILY_MAX_ITEMS = 12
@@ -493,12 +492,12 @@ def business_window(today: date, holidays: object = (), days: int = SCHEDULE_WIN
 
 
 def schedule_anchor(today: date) -> date:
-    """파트 일정 카드의 기준일 — 오늘 다음 날. `business_window(schedule_anchor(today))` 가 내일·모레 창이다.
+    """파트 일정 카드의 기준일 — 오늘. `business_window(schedule_anchor(today))` 가 오늘·내일 창이다.
 
-    오늘이 목요일이면 금·월, 금요일이면 월·화, 내일이 휴일이면 그 다음 업무일부터. 오늘 시작해 내일까지
-    걸린 일정은 창 시작 전에 시작했으므로 `ongoing` 으로 표시된다.
+    목요일이면 목·금, 금요일이면 금·월, 오늘이 휴일이면 다음 업무일부터. 한때(2026-09-17~21) 하루 뒤로 밀어
+    "내일·모레"였다 — 앵커를 한 곳에서 바꾸려고 함수로 남겨 둔다.
     """
-    return today + timedelta(days=SCHEDULE_SKIP_TODAY_DAYS)
+    return today
 
 
 def _norm_event(e: dict[str, Any], day: str, end: str, recurring: bool, ongoing: bool) -> dict[str, Any]:

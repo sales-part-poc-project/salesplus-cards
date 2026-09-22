@@ -2,11 +2,11 @@
 """salesplus-wiki 의 data/ 카드를 읽고 스키마를 검증한다 — 렌더링은 build_site.py 가 맡는다.
 
 데이터는 salesplus-wiki(private) 의 `data/profiles/*.json` · `data/projects/*.json` (폴더당 한 카드)와
-`data/schedule.json` · `data/changelog.json` · `data/daily.json` (한 파일에 한 카드)이다.
+`data/schedule.json` · `data/changelog.json` · `data/daily.json` · `data/budget.json` (한 파일에 한 카드)이다.
 위키 본문(projects/·members/·raw/)은 읽지 않는다 — 카드는 사람이 공개 범위를 골라 다시 쓴 요약이다.
 스키마·공개 범위는 그 저장소의 docs/PROFILE_SCHEMA.md · docs/PROJECT_SCHEMA.md · docs/SCHEDULE_SCHEMA.md ·
-docs/CHANGELOG_SCHEMA.md · docs/DAILY_SCHEMA.md · docs/PRIVACY.md. 검증 규칙과 업무일 창 계산은 `.github-private/scripts/update_cards.py`
-와 같아야 한다.
+docs/CHANGELOG_SCHEMA.md · docs/DAILY_SCHEMA.md · docs/BUDGET_SCHEMA.md · docs/PRIVACY.md. 검증 규칙과 업무일 창 계산은
+`.github-private/scripts/update_cards.py` 와 같아야 한다 (네트워킹비 카드 `budget.json` 은 이 사이트에만 있다, 2026-09-22).
 
 환경변수·옵션은 이 모듈을 쓰는 build_site.py 가 읽는다 (GH_TOKEN · ORG · WIKI_REPO · WIKI_REF · --local).
 
@@ -146,6 +146,10 @@ CHANGELOG_CARDS = ("profile", "project", "schedule", "site")
 CHANGELOG_KINDS = ("added", "updated", "removed")
 CHANGELOG_KIND_KO = {"added": "신설", "updated": "갱신", "removed": "삭제"}
 CHANGELOG_CARD_KO = {"profile": "멤버", "project": "프로젝트", "schedule": "파트 일정", "site": "사이트"}
+
+# 네트워킹비 카드 (docs/BUDGET_SCHEMA.md) — 사람별 할당·사용·잔액 정수(원). 잔액은 할당−사용이어야 한다.
+BUDGET_AMOUNT_KEYS = ("allotted", "used", "remaining")
+BUDGET_LOW_REMAINING = 10_000  # 이 미만이면 카드에 "1만 미만" 표식
 
 PROJECT_STATUSES = ("준비", "진행중", "보류", "완료")
 PROJECT_STATUS_ORDER = {"진행중": 0, "준비": 1, "보류": 2, "완료": 3}
@@ -421,6 +425,69 @@ def validate_daily(data: object, stem: str) -> list[str]:
     return errors
 
 
+def _amount_errors(node: dict[str, Any], where: str) -> list[str]:
+    """할당·사용·잔액 세 값이 0 이상 정수이고 잔액 = 할당 − 사용인지."""
+    errors: list[str] = []
+    vals: dict[str, int] = {}
+    for key in BUDGET_AMOUNT_KEYS:
+        v = node.get(key)
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            errors.append(f"{where}.{key}: 0 이상의 정수여야 합니다 (현재 {v!r})")
+        else:
+            vals[key] = v
+    if len(vals) == 3 and vals["remaining"] != vals["allotted"] - vals["used"]:
+        errors.append(f"{where}.remaining: 할당 − 사용({vals['allotted'] - vals['used']})과 다릅니다 (현재 {vals['remaining']})")
+    return errors
+
+
+def validate_budget(data: object, stem: str) -> list[str]:
+    """거부 사유 목록. 빈 리스트면 통과 (docs/BUDGET_SCHEMA.md '검증').
+
+    금액은 위키가 계산해 쓰지만 공개 사이트는 스스로 한 번 더 본다 — 잔액이 어긋난 채로 인터넷에 나가지 않게.
+    """
+    if not isinstance(data, dict):
+        return [f"최상위가 객체가 아닙니다 (현재 {type(data).__name__})"]
+    errors = _common_errors(data, stem, check_name=False)
+    total = data.get("total")
+    if total is not None:
+        if not isinstance(total, dict):
+            errors.append("total: 객체여야 합니다")
+        else:
+            errors.extend(_amount_errors(total, "total"))
+    members = data.get("members")
+    if members is None:
+        return errors  # 없으면 빈 배열로 본다
+    if not isinstance(members, list):
+        errors.append("members: 배열이어야 합니다")
+        return errors
+    for i, m in enumerate(members):
+        where = f"members[{i}]"
+        if not isinstance(m, dict):
+            errors.append(f"{where}: 객체가 필요합니다")
+            continue
+        if not text(m.get("name")):
+            errors.append(f"{where}.name: 비어 있습니다")
+        errors.extend(_amount_errors(m, where))
+    return errors
+
+
+def budget_rows(members: object) -> list[dict[str, Any]]:
+    """카드가 그리는 사람 줄 — 검증을 통과한 파일이라 모양만 맞추고 순서는 그대로(직급순) 둔다."""
+    out: list[dict[str, Any]] = []
+    for m in members if isinstance(members, list) else []:
+        if not isinstance(m, dict) or not text(m.get("name")):
+            continue
+        allotted, used, remaining = (int(num(m.get(k))) for k in BUDGET_AMOUNT_KEYS)
+        out.append({
+            "name": text(m.get("name")),
+            "allotted": allotted,
+            "used": used,
+            "remaining": remaining,
+            "ratio": (min(used, allotted) / allotted) if allotted > 0 else 0.0,
+        })
+    return out
+
+
 def recent_days(days: object, today: date, keep_days: int = DAILY_KEEP_DAYS) -> list[dict[str, Any]]:
     """업무 요약의 날짜 묶음 — 최신이 위, `keep_days` 개만. 미래 날짜는 버린다 (시계 차이는 하루를 넘지 않는다).
 
@@ -621,12 +688,17 @@ def badge_short(badge: object) -> str:
 # ───────────────────────────────────────────────────────────────────────── 적재
 
 
-SINGLE_FILES = (("daily", "daily.json"), ("schedule", "schedule.json"), ("changelog", "changelog.json"))  # 한 파일에 한 카드
+SINGLE_FILES = (  # 한 파일에 한 카드
+    ("daily", "daily.json"),
+    ("schedule", "schedule.json"),
+    ("changelog", "changelog.json"),
+    ("budget", "budget.json"),
+)
 
 
 @dataclass
 class Card:
-    kind: str  # "profile" | "project" | "schedule" | "changelog" | "daily"
+    kind: str  # "profile" | "project" | "schedule" | "changelog" | "daily" | "budget"
     file: str  # 표시용 경로 (profiles/이현진.json · schedule.json · daily.json)
     data: dict[str, Any] | None
     errors: list[str] = field(default_factory=list)
@@ -642,6 +714,7 @@ VALIDATORS = {
     "schedule": validate_schedule,
     "changelog": validate_changelog,
     "daily": validate_daily,
+    "budget": validate_budget,
 }
 
 

@@ -14,6 +14,7 @@
 표준 라이브러리만 쓴다. CSS 는 인라인이라 file:// 로 열어도 그대로 보인다.
 한 건이 스키마에 어긋나면 그 파일만 건너뛰고 index 하단에 사유를 남긴다.
 프로필·프로젝트가 0건이어도 사이트는 만들어진다 (빈 상태 문구만 찍힌다).
+index 순서는 업무 요약 → 파트 일정 → 프로젝트 → 멤버 → 네트워킹비(docs/BUDGET_SCHEMA.md) → 최근 변경.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cards_data import (  # noqa: E402
     AXES,
     BANNER,
+    BUDGET_LOW_REMAINING,
     CHANGELOG_CARD_KO,
     CHANGELOG_KEEP_DAYS,
     CHANGELOG_KIND_KO,
@@ -44,6 +46,7 @@ from cards_data import (  # noqa: E402
     SCHEDULE_WINDOW_DAYS,
     Card,
     badge_short,
+    budget_rows,
     business_window,
     events_in_window,
     holiday_set,
@@ -494,6 +497,36 @@ a.mem:hover{border-color:var(--sky);color:var(--sky-ink)}
 .mem i{font-style:normal;font-weight:400;font-size:12px;color:var(--muted)}
 .mem.noprofile{opacity:.7}
 .recent td.d{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted);width:1%}
+
+/* 네트워킹비 — 멤버 바로 아래. 사람별 사용/할당 막대 (2026-09-22). 글자 칸은 고정폭이 아니라 내용 길이(auto)로 —
+   고정폭이면 "사용 / 할당 · 잔액 + 표식" 이 카드 밖으로 넘친다 (위키 views/파트예산 9/22 사례) */
+.sec-budget{margin-top:34px}
+.sec-budget .sectag{background:var(--warn-soft);color:var(--warn-ink)}
+.btiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.btile{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px}
+.btile .k{font-size:11.5px;font-weight:700;color:var(--muted)}
+.btile .v{font-size:clamp(20px,4vw,24px);font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+  color:var(--ink);line-height:1.25;margin-top:2px}
+.btile .v i{font-style:normal;font-size:12px;font-weight:600;color:var(--muted);margin-left:2px}
+.btile.hi .v{color:var(--brand-ink)}
+.bgrid{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;gap:10px 12px;align-items:center}
+.bname{font-weight:800;font-size:14px;white-space:nowrap}
+.bname a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+.bname a:hover{color:var(--brand-ink);border-bottom-color:var(--brand-line)}
+.btrack{position:relative;height:16px;border-radius:5px;background:var(--line-2);overflow:hidden;min-width:0}
+.bfill{display:block;height:100%;border-radius:0 5px 5px 0;min-width:3px;
+  background:linear-gradient(90deg,var(--brand-2),var(--brand-deep))}
+.bfill.spent{background:var(--muted)}
+.bamt{font-size:12.5px;color:var(--muted);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.bamt b{color:var(--ink);font-weight:800}
+.bflag{display:inline-block;font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:999px;margin-left:6px;
+  vertical-align:1px}
+.bflag.low{background:var(--warn-soft);color:var(--warn-ink)}
+.bflag.zero{background:var(--line-2);color:var(--muted);border:1px solid var(--line)}
+@media (max-width:640px){
+  .bgrid{grid-template-columns:auto 1fr}
+  .bamt{grid-column:2;text-align:left;margin-top:-4px;white-space:normal}
+}
 
 /* 관측 신호 · 표 · 경고 · 푸터 */
 details.sig{margin-top:36px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:0 20px}
@@ -1188,6 +1221,60 @@ def daily_section(data: dict[str, Any] | None, today: date) -> str:
     return sec("sec-daily", "위키 요약", title, card("", inner), subtitle)
 
 
+def budget_bars(rows: list[dict[str, Any]], member_hrefs: dict[str, str]) -> str:
+    """사람별 막대 한 줄 = 이름(프로필 링크) · 사용 비율 막대 · 사용 / 할당 · 잔액 (+ 소진·1만 미만 표식)."""
+    cells = []
+    for r in rows:
+        href = member_hrefs.get(r["name"])
+        who = f'<a href="{esc(href)}">{esc(r["name"])}</a>' if href else esc(r["name"])
+        flag = ""
+        if r["remaining"] <= 0:
+            flag = '<span class="bflag zero">소진</span>'
+        elif r["remaining"] < BUDGET_LOW_REMAINING:
+            flag = '<span class="bflag low">1만 미만</span>'
+        spent = " spent" if r["remaining"] <= 0 else ""
+        pct = r["ratio"] * 100
+        cells.append(
+            f'<div class="bname">{who}</div>'
+            f'<div class="btrack" role="img" aria-label="{esc(r["name"])} 사용 {fmt_int(r["used"])}원 / 할당 {fmt_int(r["allotted"])}원">'
+            f'<span class="bfill{spent}" style="width:{pct:.1f}%"></span></div>'
+            f'<div class="bamt">{esc(fmt_int(r["used"]))} / {esc(fmt_int(r["allotted"]))} · 잔액 <b>{esc(fmt_int(r["remaining"]))}</b>{flag}</div>'
+        )
+    return f'<div class="bgrid" role="table" aria-label="사람별 네트워킹비 사용액과 잔액">{"".join(cells)}</div>'
+
+
+def budget_section(data: dict[str, Any] | None, member_hrefs: dict[str, str]) -> str:
+    """네트워킹비 — 사람별 사용/할당 막대와 잔액 (docs/BUDGET_SCHEMA.md). 멤버 섹션 바로 아래.
+
+    합계는 파일의 `total` 이 아니라 사람 줄을 다시 더한다 — 둘이 어긋나면 검증이 이미 파일을 뺐지만,
+    `total` 이 없는 파일도 그릴 수 있게. 파일이 없으면 한 줄만 남긴다.
+    """
+    title = "네트워킹비 — 사람별 잔액"
+    if data is None:
+        body = card("", '<p class="empty" style="margin:0">아직 네트워킹비 데이터가 없다. salesplus-wiki 의 data/budget.json 이 생기면 여기에 뜬다.</p>')
+        return sec("sec-budget", "위키 요약", title, body)
+    rows = budget_rows(data.get("members"))
+    if not rows:
+        return sec("sec-budget", "위키 요약", title, card("", '<p class="empty" style="margin:0">사람별 줄이 아직 없다.</p>'))
+    allotted = sum(r["allotted"] for r in rows)
+    used = sum(r["used"] for r in rows)
+    remaining = sum(r["remaining"] for r in rows)
+    spent_n = sum(1 for r in rows if r["remaining"] <= 0)
+    pct = f"{used / allotted * 100:.0f}%" if allotted else "-"
+    tiles = (
+        '<div class="btiles">'
+        f'<div class="btile hi"><div class="k">잔액 합계 ({len(rows)}명)</div><div class="v">{esc(fmt_int(remaining))}<i>원</i></div></div>'
+        f'<div class="btile"><div class="k">사용 / 할당</div><div class="v">{esc(fmt_int(used))}<i>/ {esc(fmt_int(allotted))} · {esc(pct)}</i></div></div>'
+        f'<div class="btile"><div class="k">소진</div><div class="v">{spent_n}<i>명</i></div></div>'
+        "</div>"
+    )
+    rule = text(data.get("rule"))
+    note = "막대는 할당 대비 사용 비율." + (f" 네트워킹비는 {esc(rule)}만 쓸 수 있다." if rule else "") + " 정본 장부와 파트공용비는 위키에 있고 여기에는 싣지 않는다."
+    body = card("", tiles + budget_bars(rows, member_hrefs) + f'<div class="note">{note}</div>')
+    subtitle = " · ".join(x for x in (text(data.get("quarter")), f"데이터 기준 {text(data.get('generated'))}" if text(data.get("generated")) else "") if x)
+    return sec("sec-budget", "위키 요약", title, body, subtitle)
+
+
 def upcoming_count(data: dict[str, Any] | None, today: date) -> int:
     """오늘·내일 창의 일정 수 — 파트 일정 섹션과 같은 앵커."""
     return len(events_in_window(data, schedule_anchor(today))) if data is not None else 0
@@ -1207,6 +1294,7 @@ def render_index(
     changelog: dict[str, Any] | None = None,
     today: date | None = None,
     daily: dict[str, Any] | None = None,
+    budget: dict[str, Any] | None = None,
 ) -> str:
     today = today or datetime.now(KST).date()
     member_hrefs = {text(d.get("name")): href_for("m", d) for d in profiles}
@@ -1215,6 +1303,9 @@ def render_index(
     near = upcoming_count(schedule, today)
     if schedule is not None:
         chips.append(f'<span class="chip"><b>임박 일정</b>{near}건</span>')
+    if budget is not None:
+        left = sum(r["remaining"] for r in budget_rows(budget.get("members")))
+        chips.append(f'<span class="chip"><b>네트워킹비 잔액</b>{esc(fmt_int(left))}원</span>')
     chips.append(f'<span class="chip"><b>빌드</b>{esc(built)}</span>')
     if generated:
         chips.append(f'<span class="chip"><b>데이터 기준</b>{esc(generated)}</span>')
@@ -1222,9 +1313,9 @@ def render_index(
     if low_n:
         chips.append(f'<span class="chip"><b>표본 부족</b>{low_n}명</span>')
     hero = (
-        '<header class="hero"><div class="in"><div class="hero-eyebrow">업무 요약 · 파트 일정 · 프로젝트 · 멤버</div>'
+        '<header class="hero"><div class="in"><div class="hero-eyebrow">업무 요약 · 파트 일정 · 프로젝트 · 멤버 · 네트워킹비</div>'
         f'<h1 class="hero-title">{esc(part)}</h1>'
-        '<div class="hero-sub">동기화 때 정리한 업무 요약과 파트 일정, 진행 중인 과제 요약, 파트 텔레그램 방에서 집계한 말투 신호로 만든 파트원 카드. '
+        '<div class="hero-sub">동기화 때 정리한 업무 요약과 파트 일정, 진행 중인 과제 요약, 파트 텔레그램 방에서 집계한 말투 신호로 만든 파트원 카드, 사람별 네트워킹비 잔액. '
         "위키 본문과 원본 대화는 여기에 실리지 않는다.</div>"
         f'<div class="hero-chips">{"".join(chips)}</div></div></header>'
     )
@@ -1238,8 +1329,10 @@ def render_index(
     else:
         pcards = card("", '<p class="empty" style="margin:0">아직 프로젝트 카드가 없다. salesplus-wiki 의 data/projects/ 에 채운다.</p>')
     s_projects = '<div id="projects"></div>' + sec("sec-proj", "위키 요약", "프로젝트", pcards, "진행률은 마일스톤 완료 수 · 확정 계획이 아니다")
-    # 순서는 오늘 업무 요약 → 파트 일정(오늘·내일) → 프로젝트 → 멤버 → 최근 변경 (2026-09-17 결정, 창은 2026-09-22)
+    # 순서는 오늘 업무 요약 → 파트 일정(오늘·내일) → 프로젝트 → 멤버 → 네트워킹비 → 최근 변경
+    # (2026-09-17 결정, 창은 2026-09-22, 네트워킹비는 개인카드 아래에 2026-09-22 추가)
     s_daily = daily_section(daily, today)
+    s_budget = budget_section(budget, member_hrefs)
     s_chg = changelog_section(changelog, today, member_hrefs, project_hrefs)
     s_sched = schedule_section(schedule, today, member_hrefs)
     skips = ""
@@ -1249,7 +1342,7 @@ def render_index(
             f'<div class="warnbox skips"><h3>검증에서 건너뛴 파일 {len(skipped)}건</h3><ul>{items}</ul>'
             '<p style="margin-top:9px">한 건 때문에 전체가 막히지 않도록 그 파일만 빼고 빌드했다. 고치면 다음 빌드에 다시 들어온다.</p></div>'
         )
-    body = hero + banner_html() + '<main class="wrap">' + s_daily + s_sched + s_projects + s_members + s_chg + skips + footer_html(part, built) + "</main>"
+    body = hero + banner_html() + '<main class="wrap">' + s_daily + s_sched + s_projects + s_members + s_budget + s_chg + skips + footer_html(part, built) + "</main>"
     return html_doc(f"{part} 멤버 프로필 · 프로젝트", body)
 
 
@@ -1267,9 +1360,10 @@ def build(cards: list[Card], out_dir: Path) -> None:
     schedule = next((c.data for c in cards if c.ok and c.kind == "schedule" and c.data is not None), None)
     changelog = next((c.data for c in cards if c.ok and c.kind == "changelog" and c.data is not None), None)
     daily = next((c.data for c in cards if c.ok and c.kind == "daily" and c.data is not None), None)
+    budget = next((c.data for c in cards if c.ok and c.kind == "budget" and c.data is not None), None)
     skipped = [c for c in cards if not c.ok]
     part = next((text(d.get("part")) for d in profiles + projects if text(d.get("part"))), DEFAULT_PART)
-    singles = [d for d in (daily, schedule, changelog) if d is not None]
+    singles = [d for d in (daily, schedule, changelog, budget) if d is not None]
     generated = max((text(d.get("generated")) for d in profiles + projects + singles), default="")
     now = datetime.now(KST)
     built = now.strftime("%Y-%m-%d %H:%M KST")
@@ -1281,13 +1375,13 @@ def build(cards: list[Card], out_dir: Path) -> None:
         (out_dir / "m" / f"{text(d.get('name'))}.html").write_text(render_person(d, built), encoding="utf-8")
     for d in projects:
         (out_dir / "p" / f"{text(d.get('name'))}.html").write_text(render_project(d, built, member_hrefs), encoding="utf-8")
-    index = render_index(profiles, projects, skipped, part, built, generated, schedule, changelog, now.date(), daily)
+    index = render_index(profiles, projects, skipped, part, built, generated, schedule, changelog, now.date(), daily, budget)
     (out_dir / "index.html").write_text(index, encoding="utf-8")
     (out_dir / ".nojekyll").write_text("", encoding="utf-8")  # Jekyll 후처리 방지
     near = upcoming_count(schedule, now.date())
     print(
         f"{out_dir}/index.html 생성 — 멤버 {len(profiles)}명 · 프로젝트 {len(projects)}건 · "
-        f"임박 일정 {near}건 · 건너뜀 {len(skipped)}건",
+        f"임박 일정 {near}건 · 네트워킹비 {'있음' if budget is not None else '없음'} · 건너뜀 {len(skipped)}건",
         file=sys.stderr,
     )
 

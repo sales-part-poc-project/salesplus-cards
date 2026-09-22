@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""업무 요약·파트 일정·변경사항 카드의 규칙 검증 (salesplus-wiki/docs/DAILY_SCHEMA.md · SCHEDULE_SCHEMA.md · CHANGELOG_SCHEMA.md).
+"""업무 요약·파트 일정·변경사항·네트워킹비 카드의 규칙 검증 (salesplus-wiki/docs/DAILY_SCHEMA.md · SCHEDULE_SCHEMA.md ·
+CHANGELOG_SCHEMA.md · BUDGET_SCHEMA.md).
 
     python3 -m unittest discover -s scripts -p 'test_*.py'
 
@@ -26,7 +27,9 @@ from cards_data import (  # noqa: E402
     load_local,
     recent_days,
     recent_entries,
+    budget_rows,
     schedule_anchor,
+    validate_budget,
     validate_changelog,
     validate_daily,
     validate_schedule,
@@ -53,6 +56,15 @@ def daily(**over) -> dict:
 
 def chlog(**over) -> dict:
     base = {"schema_version": 1, "generated": "2026-09-16", "keep_days": 7, "entries": []}
+    base.update(over)
+    return base
+
+
+def budget(**over) -> dict:
+    base = {"schema_version": 1, "part": "세일즈플러스파트", "generated": "2026-09-22", "quarter": "2026-3Q",
+            "total": {"allotted": 810000, "used": 756970, "remaining": 53030},
+            "members": [{"name": "유지영", "allotted": 540000, "used": 492170, "remaining": 47830},
+                        {"name": "김동준", "allotted": 270000, "used": 264800, "remaining": 5200}]}
     base.update(over)
     return base
 
@@ -487,6 +499,80 @@ class ValidateChangelog(unittest.TestCase):
         self.assertTrue(validate_changelog(chlog(entries={}), "changelog"))
 
 
+class ValidateBudget(unittest.TestCase):
+    """네트워킹비 카드 — 사람별 할당·사용·잔액 정수, 잔액 = 할당 − 사용 (docs/BUDGET_SCHEMA.md)."""
+
+    def test_정상(self):
+        self.assertEqual(validate_budget(budget(), "budget"), [])
+
+    def test_실제_금액_자릿수를_전화번호나_주민번호로_오탐하지_않는다(self):
+        # 위키가 만드는 값 그대로 — 7자리 금액이 이어져도 금지 패턴에 걸리면 섹션이 통째로 빠진다
+        data = budget(total={"allotted": 2025000, "used": 1947714, "remaining": 77286},
+                      members=[{"name": "유지영", "allotted": 2025000, "used": 1947714, "remaining": 77286}])
+        self.assertEqual(validate_budget(data, "budget"), [])
+
+    def test_members_가_없으면_빈_배열로_본다(self):
+        d = budget(); del d["members"]
+        self.assertEqual(validate_budget(d, "budget"), [])
+
+    def test_schema_version(self):
+        self.assertTrue(any("schema_version" in e for e in validate_budget(budget(schema_version=2), "budget")))
+
+    def test_members_가_배열이_아니면_거부(self):
+        self.assertTrue(any("members:" in e for e in validate_budget(budget(members={}), "budget")))
+
+    def test_이름이_비면_거부(self):
+        errs = validate_budget(budget(members=[{"name": " ", "allotted": 1, "used": 0, "remaining": 1}]), "budget")
+        self.assertTrue(any("members[0].name" in e for e in errs))
+
+    def test_금액은_0_이상의_정수(self):
+        for bad in (-1, 1.5, "540,000", True, None):
+            with self.subTest(bad=bad):
+                errs = validate_budget(budget(members=[{"name": "가", "allotted": bad, "used": 0, "remaining": 0}]), "budget")
+                self.assertTrue(any("members[0].allotted" in e for e in errs))
+
+    def test_잔액이_할당_빼기_사용과_다르면_거부(self):
+        errs = validate_budget(budget(members=[{"name": "가", "allotted": 100, "used": 30, "remaining": 80}]), "budget")
+        self.assertTrue(any("members[0].remaining" in e and "70" in e for e in errs))
+
+    def test_total_도_같은_검사(self):
+        errs = validate_budget(budget(total={"allotted": 100, "used": 30, "remaining": 80}), "budget")
+        self.assertTrue(any("total.remaining" in e for e in errs))
+        self.assertTrue(any("total:" in e for e in validate_budget(budget(total=[]), "budget")))
+
+    def test_total_은_없어도_된다(self):
+        d = budget(); del d["total"]
+        self.assertEqual(validate_budget(d, "budget"), [])
+
+    def test_URL_은_거부(self):
+        self.assertTrue(any("URL" in e for e in validate_budget(budget(rule="https://x.y 참고"), "budget")))
+
+    def test_금지_키는_거부(self):
+        self.assertTrue(any("금지 키" in e for e in validate_budget(budget(quotes=["원문"]), "budget")))
+
+    def test_객체가_아니면_거부(self):
+        self.assertTrue(validate_budget([], "budget"))
+
+
+class BudgetRows(unittest.TestCase):
+    def test_순서를_지키고_비율을_붙인다(self):
+        rows = budget_rows(budget()["members"])
+        self.assertEqual([r["name"] for r in rows], ["유지영", "김동준"])
+        self.assertAlmostEqual(rows[0]["ratio"], 492170 / 540000)
+
+    def test_할당이_0이면_비율_0(self):
+        rows = budget_rows([{"name": "가", "allotted": 0, "used": 0, "remaining": 0}])
+        self.assertEqual(rows[0]["ratio"], 0.0)
+
+    def test_사용이_할당을_넘어도_막대는_100까지(self):
+        rows = budget_rows([{"name": "가", "allotted": 100, "used": 120, "remaining": -20}])
+        self.assertEqual(rows[0]["ratio"], 1.0)
+
+    def test_이름_없는_줄과_객체가_아닌_줄은_건너뛴다(self):
+        rows = budget_rows([{"name": "", "allotted": 1, "used": 0, "remaining": 1}, "x", {"name": "가", "allotted": 1, "used": 0, "remaining": 1}])
+        self.assertEqual([r["name"] for r in rows], ["가"])
+
+
 class LoadLocalSingleFiles(unittest.TestCase):
     """data/daily.json · data/schedule.json · data/changelog.json 은 폴더가 아니라 한 파일에 한 카드다."""
 
@@ -512,6 +598,16 @@ class LoadLocalSingleFiles(unittest.TestCase):
             kinds = {c.kind: c for c in load_local(root)}
             self.assertTrue(kinds["daily"].ok)
             self.assertEqual(kinds["daily"].file, "daily.json")
+
+    def test_네트워킹비_카드도_한_파일이다(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "data" / "profiles").mkdir(parents=True)
+            (root / "data" / "projects").mkdir(parents=True)
+            (root / "data" / "budget.json").write_text(json.dumps(budget(), ensure_ascii=False), encoding="utf-8")
+            kinds = {c.kind: c for c in load_local(root)}
+            self.assertTrue(kinds["budget"].ok)
+            self.assertEqual(kinds["budget"].file, "budget.json")
 
     def test_깨진_파일은_그_카드만_건너뛴다(self):
         with tempfile.TemporaryDirectory() as tmp:

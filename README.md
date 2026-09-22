@@ -3,7 +3,7 @@
 **https://sales-part-poc-project.github.io/salesplus-cards/**
 
 [`salesplus-wiki`](https://github.com/sales-part-poc-project/salesplus-wiki)(private) 의 `data/profiles/*.json` · `data/projects/*.json` ·
-`data/daily.json` · `data/schedule.json` · `data/changelog.json` 을 읽어
+`data/daily.json` · `data/schedule.json` · `data/changelog.json` · `data/budget.json` 을 읽어
 정적 HTML 로 그리고 GitHub Pages 로 배포한다. 이 저장소에는 **코드만** 있고 데이터는 없다 — 카드 내용은 위키 저장소에서 고친다.
 
 > ⚠️ 이 저장소와 사이트는 **public** 이다. 조직 private 저장소의 Pages 는 유료 플랜에서만 되기 때문에 사이트만 따로 뗐다.
@@ -15,10 +15,12 @@
 salesplus-wiki/data/profiles/*.json  ─┐
 salesplus-wiki/data/projects/*.json  ─┤
 salesplus-wiki/data/schedule.json    ─┤→ cards_data.py (검증) → build_site.py → _site/ → GitHub Pages
-salesplus-wiki/data/changelog.json   ─┘
+salesplus-wiki/data/changelog.json   ─┤
+salesplus-wiki/data/budget.json      ─┘
 ```
 
-index 의 순서는 **파트 일정 → 프로젝트 → 멤버 → 최근 변경** 이다 (2026-09-16 결정 — 변경사항은 줄 수가 많아 맨 아래로 내렸다).
+index 의 순서는 **업무 요약 → 파트 일정 → 프로젝트 → 멤버 → 네트워킹비 → 최근 변경** 이다 (2026-09-16 결정 — 변경사항은 줄 수가 많아 맨 아래로 내렸다.
+2026-09-22 — 개인카드 아래에 사람별 네트워킹비 잔액을 붙였다. 위키 `파트예산.md` 의 개별 네트워킹비 표를 `build_budget.py` 가 `data/budget.json` 으로 만든다).
 일정의 "업무일 2일" 창은 JSON 에 없고 **빌드 시각 기준으로 여기서 계산한다** — 위키의 `build_schedule.py` ·
 `.github-private` 의 `update_cards.py` 와 규칙이 같아야 한다 (`scripts/cards_data.py` 의 `business_window` · `events_in_window`).
 기준일이 업무일이면 그날이 첫째 날, 아니면 다음 업무일이 첫째 날이고, 창은 거기서부터 업무일 2일이다 (목 → 목·금, 금 → 금·월, 토 → 월·화).
@@ -39,7 +41,8 @@ index 의 순서는 **파트 일정 → 프로젝트 → 멤버 → 최근 변�
 
 ## 무엇이 나가나
 
-- 무엇을 싣고 뺄지는 salesplus-wiki 의 `docs/PRIVACY.md` · `docs/PROFILE_SCHEMA.md` · `docs/PROJECT_SCHEMA.md` · `docs/DAILY_SCHEMA.md` · `docs/SCHEDULE_SCHEMA.md` · `docs/CHANGELOG_SCHEMA.md` 가 정한다
+- 무엇을 싣고 뺄지는 salesplus-wiki 의 `docs/PRIVACY.md` · `docs/PROFILE_SCHEMA.md` · `docs/PROJECT_SCHEMA.md` · `docs/DAILY_SCHEMA.md` · `docs/SCHEDULE_SCHEMA.md` · `docs/CHANGELOG_SCHEMA.md` · `docs/BUDGET_SCHEMA.md` 가 정한다
+- 네트워킹비 카드는 파트원 이름·할당·사용·잔액 숫자뿐이다 — 파트공용비 내역(회식 장소 등)은 위키에만 있다
 - 링크·전화번호·이메일·주민번호 형태·원문 인용 키가 있으면 **그 파일만** 건너뛰고 index 하단에 사유를 남긴다
 - MBTI·나이대는 추측이라 근거 강도가 붙는다. 본인이 원하면 위키에서 자기 JSON 의 `fun` 을 `null` 로 둔다
 - 카드가 0건이어도 사이트는 만들어진다

@@ -23,6 +23,7 @@ on:
     branches: [main]
     paths:
       - scripts/**
+      - esports/**              # e스포츠 전적 기록만 고쳐도 다시 그린다
       - .github/workflows/pages.yml
 
 permissions:

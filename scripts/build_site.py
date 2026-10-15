@@ -16,6 +16,7 @@
 프로필·프로젝트가 0건이어도 사이트는 만들어진다 (빈 상태 문구만 찍힌다).
 index 순서는 활동 월드컵 → 업무 요약 → 파트 일정 → 프로젝트 → 멤버 → 네트워킹비(docs/BUDGET_SCHEMA.md) → 최근 변경.
 활동 월드컵(재미)만 인라인 JS 를 쓴다 — 대진이 새로고침마다 바뀌어야 해서. 외부 리소스는 여전히 없다.
+e스포츠 전적실(esports.html)은 build_esports.py 가 이 저장소의 esports/records.json 으로 따로 만들고, index 히어로에 링크만 건다.
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ from cards_data import (  # noqa: E402
     text,
 )
 from cards_data import KST, GitHub, warn  # noqa: E402
+import build_esports  # noqa: E402
 
 PROJECT_STATUS_CLASS = {"준비": "ps-todo", "진행중": "ps-doing", "보류": "ps-hold", "완료": "ps-done"}
 # 일정 종류 일곱 값 (docs/SCHEDULE_SCHEMA.md). 색은 파트 로고 팔레트 안에서만 고른다.
@@ -205,6 +207,9 @@ code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.92em;backgrou
   border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:600;max-width:100%;
   box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .hero-chips .chip b{color:#8C2410;font-weight:700;margin-right:6px;font-size:11px}
+.hero-chips a.chip-link{text-decoration:none;background:#120A24;color:#FFE48A;border-color:#6A1AA8}
+.hero-chips a.chip-link b{color:#47F0FF}
+.hero-chips a.chip-link:hover{box-shadow:0 0 0 2px #B26BF0}
 @media (prefers-color-scheme:dark){
   .hero-chips .chip{color:#fff;box-shadow:none}
   .hero-chips .chip b{color:#FFD3B8}
@@ -1975,6 +1980,7 @@ def render_index(
     today: date | None = None,
     daily: dict[str, Any] | None = None,
     budget: dict[str, Any] | None = None,
+    esports: bool = False,
 ) -> str:
     today = today or datetime.now(KST).date()
     member_hrefs = {text(d.get("name")): href_for("m", d) for d in profiles}
@@ -1992,6 +1998,8 @@ def render_index(
     low_n = sum(1 for d in profiles if text(sub(d, "signals").get("confidence")) == "낮음")
     if low_n:
         chips.append(f'<span class="chip"><b>표본 부족</b>{low_n}명</span>')
+    if esports:  # e스포츠 방 재미 페이지 (build_esports.py) — 만들어졌을 때만 잇는다
+        chips.append('<a class="chip chip-link" href="esports.html"><b>🎮 별들의 전쟁</b>점심 스타 전적실 →</a>')
     hero = (
         '<header class="hero"><div class="in"><div class="hero-eyebrow">활동 월드컵 · 업무 요약 · 파트 일정 · 프로젝트 · 멤버 · 네트워킹비</div>'
         f'<h1 class="hero-title">{esc(part)}</h1>'
@@ -2056,7 +2064,15 @@ def build(cards: list[Card], out_dir: Path) -> None:
         (out_dir / "m" / f"{text(d.get('name'))}.html").write_text(render_person(d, built), encoding="utf-8")
     for d in projects:
         (out_dir / "p" / f"{text(d.get('name'))}.html").write_text(render_project(d, built, member_hrefs), encoding="utf-8")
-    index = render_index(profiles, projects, skipped, part, built, generated, schedule, changelog, now.date(), daily, budget)
+    # e스포츠 페이지는 위키가 아니라 이 저장소의 esports/records.json 을 읽는다. 어긋나면 그 페이지만 빠진다
+    try:
+        es_errors = build_esports.write_page(out_dir, built=built)
+    except Exception as e:  # 손으로 고치는 파일이라 검증이 못 잡은 모양새가 와도 메인 사이트는 지킨다
+        es_errors = [f"렌더링 예외: {e!r}"]
+    for e in es_errors:
+        warn(f"esports.html 건너뜀: {e}")
+    index = render_index(profiles, projects, skipped, part, built, generated, schedule, changelog, now.date(), daily, budget,
+                         esports=not es_errors)
     (out_dir / "index.html").write_text(index, encoding="utf-8")
     (out_dir / ".nojekyll").write_text("", encoding="utf-8")  # Jekyll 후처리 방지
     near = upcoming_count(schedule, now.date())

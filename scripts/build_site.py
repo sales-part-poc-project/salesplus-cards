@@ -14,13 +14,16 @@
 표준 라이브러리만 쓴다. CSS 는 인라인이라 file:// 로 열어도 그대로 보인다.
 한 건이 스키마에 어긋나면 그 파일만 건너뛰고 index 하단에 사유를 남긴다.
 프로필·프로젝트가 0건이어도 사이트는 만들어진다 (빈 상태 문구만 찍힌다).
-index 순서는 업무 요약 → 파트 일정 → 프로젝트 → 멤버 → 네트워킹비(docs/BUDGET_SCHEMA.md) → 최근 변경.
+index 순서는 활동 월드컵 → 업무 요약 → 파트 일정 → 프로젝트 → 멤버 → 네트워킹비(docs/BUDGET_SCHEMA.md) → 최근 변경.
+활동 월드컵(재미)만 인라인 JS 를 쓴다 — 대진이 새로고침마다 바뀌어야 해서. 외부 리소스는 여전히 없다.
 """
 
 from __future__ import annotations
 
 import argparse
 import html
+import json
+import math
 import os
 import re
 import sys
@@ -346,6 +349,125 @@ a.evmem:hover{border-color:var(--brand-line);color:var(--brand-ink)}
 .st-obs{background:var(--brand-soft);color:var(--brand-ink)}
 .st-weak{background:var(--line-2);color:var(--muted);border:1px solid var(--line)}
 .st-none{background:var(--warn-soft);color:var(--warn-ink)}
+
+/* 활동 월드컵 — 맨 위 재미 섹션 (2026-10-15). 대진표는 아래(참가자 타일)에서 위(트로피)로 모인다.
+   좁은 폭에서는 대진표 칸만 안에서 가로로 밀린다 — 페이지는 넘치지 않는다 */
+.sec-battle{margin-top:30px}
+.sec-battle .sectag{background:var(--hsp-soft);color:var(--hsp-ink)}
+.btwrap{position:relative;background:var(--surface);border:1px solid var(--hsp-line);border-radius:var(--r-lg);
+  padding:20px 18px 16px;box-shadow:var(--shadow);overflow:hidden}
+.btwrap::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;
+  background:linear-gradient(90deg,var(--amber),var(--brand),var(--hsp))}
+.bt-champ{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;min-height:132px}
+.bt-trophy{font-size:46px;line-height:1;filter:drop-shadow(0 6px 12px rgba(245,162,10,.35))}
+.bt-kicker{font-size:11px;font-weight:800;background:var(--amber);color:var(--amber-ink);
+  border-radius:999px;padding:2px 11px}
+.bt-who{display:flex;align-items:center;gap:8px;max-width:100%;opacity:0;transform:translateY(8px) scale(.96);
+  transition:opacity .45s ease,transform .45s cubic-bezier(.3,1.6,.5,1)}
+.bt-champ.bt-on .bt-who{opacity:1;transform:none}
+.bt-who .ch{flex:0 0 auto;width:44px;height:52px}
+.bt-who>div{min-width:0;word-break:keep-all;overflow-wrap:anywhere}
+.bt-cname{font-size:clamp(19px,4vw,23px);font-weight:800;letter-spacing:-.03em}
+.bt-cname a{color:var(--ink);text-decoration:none;border-bottom:3px solid var(--amber)}
+.bt-cname a:hover{color:var(--brand-ink)}
+.bt-cline{font-size:12.5px;color:var(--ink-2)}
+.bt-wait{font-size:12.5px;color:var(--muted)}
+.bt-champ.bt-on .bt-wait{display:none}
+.bt-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;
+  margin:6px -6px 0;padding:0 6px 6px}
+.bt-board{--n:4;width:100%;max-width:calc(var(--n) * 124px + 80px);min-width:calc(var(--n) * 78px + 64px);margin:0 auto}
+.bt-final{display:block;width:fit-content;margin:0 auto;font-size:12.5px;font-weight:800;color:var(--ink);
+  background:var(--surface-2);border:2px solid var(--amber);border-radius:var(--r-sm);padding:3px 16px}
+.bt-region{position:relative}
+.bt-region svg{display:block;width:100%;height:auto;overflow:visible}
+.bt-ghost{fill:none;stroke:var(--line);stroke-width:4;stroke-linejoin:round}
+.bt-seg{fill:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;
+  opacity:0;transition:stroke-dashoffset .55s ease,opacity .1s}
+.bt-seg.win{stroke:var(--brand)}
+.bt-seg.lose{stroke:var(--muted);stroke-opacity:.38}
+.bt-seg.top{stroke:var(--amber)}
+.bt-seg.bt-on{opacity:1;stroke-dashoffset:0}
+.bt-lvl{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;font-weight:800;white-space:nowrap;
+  color:var(--hsp-ink);background:var(--hsp-soft);border:1px solid var(--hsp-line);border-radius:999px;padding:0 7px}
+.bt-mini{position:absolute;width:30px;height:30px;border-radius:50%;background:var(--surface);
+  box-shadow:0 0 0 2px var(--brand),var(--shadow);transform:translate(-50%,-50%) scale(.2);opacity:0;
+  transition:opacity .3s ease,transform .4s cubic-bezier(.3,1.6,.5,1)}
+.bt-mini .ch{display:block;width:30px;height:35px;margin-top:-7px}
+.bt-mini.bt-on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.bt-mini.out{opacity:.4;filter:grayscale(1);box-shadow:0 0 0 2px var(--line)}
+.bt-tiles{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr))}
+.bt-tile{position:relative;margin:0 3px;border-radius:var(--r-sm);background:var(--surface-2);overflow:hidden;
+  border:1px solid var(--line);scroll-snap-align:center;outline-offset:2px}
+.bt-tile.champ{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber),0 10px 22px -12px rgba(245,162,10,.6)}
+.bt-in{padding:9px 4px 8px;text-align:center;transition:opacity .35s,filter .35s}
+.bt-in .ch{width:46px;height:54px;display:block;margin:0 auto}
+.bt-name{font-size:13.5px;font-weight:800;line-height:1.2;margin-top:3px;word-break:keep-all}
+.bt-short{display:none}
+.bt-job{font-size:10px;font-weight:700;color:var(--hsp-ink);line-height:1.25;margin-top:2px;word-break:keep-all}
+.bt-rank{font-size:10.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+.bt-icons{font-size:10px;color:var(--ink-2);margin-top:4px;line-height:1.4;font-variant-numeric:tabular-nums}
+.bt-icons span{display:inline-block;white-space:nowrap;margin:0 2px}
+.bt-tile.out .bt-in{opacity:.55;filter:grayscale(.5)}
+.bt-stamp{position:absolute;left:50%;top:62%;font-size:14px;font-weight:900;letter-spacing:.06em;color:var(--brand-deep);
+  border:2.5px solid var(--brand-deep);border-radius:7px;padding:0 6px;pointer-events:none;white-space:nowrap;
+  background:color-mix(in srgb,var(--surface) 70%,transparent);opacity:0;
+  transform:translate(-50%,-50%) rotate(-14deg)}
+.bt-tile.out .bt-stamp{opacity:1;animation:bt-thump .32s cubic-bezier(.5,0,.75,0) both}
+@keyframes bt-thump{from{opacity:0;transform:translate(-50%,-50%) rotate(-14deg) scale(2.4)}
+  to{opacity:1;transform:translate(-50%,-50%) rotate(-14deg) scale(1)}}
+@keyframes bt-thump-s{from{opacity:0;transform:translateX(-50%) rotate(-10deg) scale(2.2)}
+  to{opacity:1;transform:translateX(-50%) rotate(-10deg) scale(1)}}
+/* 타일을 누르거나 올리면 RPG 스탯 면으로 뒤집힌다 (업무 성향 5축을 그대로 옮긴 것) */
+.bt-stats{position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;gap:1px;
+  padding:6px 5px;border-radius:inherit;background:var(--surface);font-size:10px;line-height:1.35;text-align:left;z-index:1}
+.bt-tile:hover .bt-stats,.bt-tile:focus .bt-stats{display:flex}
+.bt-stats b{font-size:10.5px;color:var(--hsp-ink);word-break:keep-all;margin-bottom:2px}
+.bt-stats span{display:flex;justify-content:space-between;gap:4px;color:var(--ink-2);white-space:nowrap}
+.bt-stats i{font-style:normal;color:var(--brand-ink);letter-spacing:-.1em}
+.bt-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:12px}
+.bt-again{font:inherit;font-size:13px;font-weight:800;color:var(--avatar-ink);background:var(--brand-ink);border:0;
+  border-radius:999px;padding:7px 16px;cursor:pointer;box-shadow:0 6px 16px -8px var(--brand)}
+.bt-again:hover{background:var(--brand-deep)}
+.bt-hint{font-size:11.5px;color:var(--muted)}
+details.bt-log{margin-top:12px;border-top:1px solid var(--line-2);padding-top:6px}
+details.bt-log>summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--ink-2);padding:4px 0}
+.bt-rd+.bt-rd{margin-top:8px}
+.bt-rdname{font-size:11px;font-weight:800;color:var(--hsp-ink);margin:4px 0}
+.bt-mlist{list-style:none;padding:0;margin:0}
+.bt-mlist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 7px;font-size:13px;margin:0 0 6px;
+  font-variant-numeric:tabular-nums}
+.bt-mlist .w{font-weight:800;color:var(--ink)}
+.bt-mlist .l{color:var(--muted)}
+.bt-mlist .vs{color:var(--brand)}
+.bt-mlist small{flex-basis:100%;font-size:11px;color:var(--muted)}
+/* 캐릭터 몸 색 — 활동 월드컵 전용 중채도 팔레트 10색 (로고 팔레트 밖, 캐릭터 몸에만 쓴다).
+   눈·입은 어두운 선이라 라이트·다크 어느 바탕에서도 같은 색으로 읽힌다. 번호는 battle_colors 가 겹치지 않게 배정한다 */
+.ch .bt-bd{fill:#FF8A65;stroke:rgba(28,21,18,.2);stroke-width:1}
+.bt-c1 .bt-bd{fill:#FFC94D}
+.bt-c2 .bt-bd{fill:#6EC1F0}
+.bt-c3 .bt-bd{fill:#F58BBF}
+.bt-c4 .bt-bd{fill:#A99AF0}
+.bt-c5 .bt-bd{fill:#6FD3A0}
+.bt-c6 .bt-bd{fill:#FFA94D}
+.bt-c7 .bt-bd{fill:#8AA4FF}
+.bt-c8 .bt-bd{fill:#E3C39A}
+.bt-c9 .bt-bd{fill:#C5E066}
+.ch .bt-mo{fill:none;stroke:#1C1512;stroke-width:2.2;stroke-linecap:round}
+.ch .bt-ck{fill:#F9308E;opacity:.35}
+@media (max-width:560px){
+  .bt-board{min-width:calc(var(--n) * 56px + 52px)}
+  .bt-in .ch{width:36px;height:42px}
+  .bt-job,.bt-icons,.bt-full{display:none}
+  .bt-short{display:inline}
+  .bt-name{font-size:12.5px}
+  .bt-tile{margin:0 2px}
+  .bt-mini{width:24px;height:24px}
+  .bt-mini .ch{width:24px;height:28px;margin-top:-6px}
+  /* 도장은 얼굴 아래(이름·순위 줄)에 작게 — 캐릭터가 가려지지 않게 */
+  .bt-stamp{top:auto;bottom:6px;font-size:10.5px;border-width:2px;padding:0 4px;
+    transform:translateX(-50%) rotate(-10deg)}
+  .bt-tile.out .bt-stamp{animation-name:bt-thump-s}
+}
 
 /* 업무 성향 5축 */
 .axes{display:flex;flex-direction:column;gap:16px}
@@ -1280,6 +1402,537 @@ def upcoming_count(data: dict[str, Any] | None, today: date) -> int:
     return len(events_in_window(data, schedule_anchor(today))) if data is not None else 0
 
 
+# ─────────────────────────────────────────────────────────── 활동 월드컵 (재미)
+
+# 캐릭터는 이미 사이트에 공개된 관측값에서만 만든다 — 말투 배지(signals.badge, 멤버 목록에 나간다)와
+# 업무 성향 5축(profile.axes, 상세 페이지에 나간다). 별명(fun.nickname)은 재미 코너가 있을 때만 쓴다.
+# 말투 배지 마커 → (상징 이모지, 많이 쓸 때 직업, 안 쓸 때 직업, 모자, 같은 뜻의 축). 안 쓰는 쪽도 호의적으로 붙인다.
+BATTLE_HEROES = {
+    "제안형": ("🧙", "아이디어 마법사", "묵묵한 실행 마법사", "wizard", "exploration"),
+    "단정": ("🗡️", "결단 검사", "신중한 검사", "helm", ""),
+    "확인요구": ("🛡️", "검증 수호자", "믿음직한 수호자", "crest", "verification"),
+    "물음표": ("🔍", "질문 탐정", "직감 탐정", "detective", ""),
+    "느낌표": ("⚡", "번개 전령", "차분한 전령", "antenna", ""),
+    "웃음ㅋ": ("😆", "웃음 폭격기", "포커페이스 승부사", "party", ""),
+    "웃음ㅎ": ("😊", "미소 치유사", "담백한 치유사", "flower", ""),
+    "물결": ("🌊", "물결 서퍼", "직진 서퍼", "band", ""),
+    "말줄임": ("🌙", "여운 술사", "깔끔한 술사", "nightcap", ""),
+    "습니다체": ("🎩", "정중 기사", "친근한 기사", "tophat", ""),
+    "겸양": ("🕊️", "평화 수호자", "당당한 수호자", "halo", ""),
+    "위임분담": ("🧭", "작전 지휘관", "솔선 지휘관", "captain", "delegation"),
+    "존댓말요": ("🌸", "상냥한 음유시인", "담백한 음유시인", "beret", ""),
+}
+# 5축 → (RPG 스탯 이름, 직업 앞 수식어, 배지가 없을 때 이모지·직업·모자). 순서가 동점일 때의 우선순위다
+BATTLE_AXES = (
+    ("delegation", "리더십", "든든한", "🧭", "작전 지휘관", "captain"),
+    ("verification", "방어", "빈틈없는", "🛡️", "검증 수호자", "crest"),
+    ("planning", "전략", "계획적인", "📜", "전략가", "mortar"),
+    ("thoroughness", "집중", "집요한", "🔬", "장인", "goggles"),
+    ("exploration", "창의", "호기심 많은", "🔭", "탐험가", "explorer"),
+)
+BATTLE_DEFAULT_HERO = ("⭐", "신입 모험가", "sprout")  # 배지도 5축도 없을 때
+# 눈 모양 — 웃음 배지는 ^^ 눈, 최고 축이 검증이면 안경·탐색이면 반짝 눈, 나머지는 배지별
+BATTLE_EYES = {"느낌표": "wide", "말줄임": "sleepy", "단정": "sharp", "물음표": "sparkle"}
+BATTLE_PALETTE = 10  # 캐릭터 몸 색 수 — CSS .bt-c0 ~ .bt-c9
+BATTLE_WEEK_KEYS = (("utterances", "u"), ("artifacts", "a"), ("active_days", "d"))
+
+# 대진·점수는 브라우저에서 매번 새로 계산한다 (새로고침마다 대진이 바뀐다). 순수 로직은 Ladder 에 두고
+# DOM 은 document 가 있을 때만 그린다 — node 로 Ladder 만 꺼내 검증할 수 있게.
+# 데이터는 textContent·setAttribute 로만 넣는다 (innerHTML 에 데이터를 넣지 않는다).
+BATTLE_JS = r"""
+const Ladder = {
+  rand() {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const b = new Uint32Array(1);
+      crypto.getRandomValues(b);
+      return b[0] / 4294967296;
+    }
+    return Math.random();
+  },
+  // 활동점수 = 발화 + 5×산출물 + 10×활동일
+  score(p) { return p.u + 5 * p.a + 10 * p.d; },
+  shuffle(xs, rnd) {
+    const out = xs.slice();
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  },
+  roundName(size, hasBye) {
+    if (size === 2) return '결승전';
+    return hasBye ? '1라운드' : size + '강전';
+  },
+  // 첫 라운드 대진. 2의 거듭제곱에 모자란 만큼 부전승 — 부전승 쌍은 한 자리만 비어 있어 부전승끼리는 붙지 않는다.
+  // 어느 쌍이 부전승인지도 무작위
+  draw(players, rnd) {
+    let size = 2;
+    while (size < players.length) size *= 2;
+    const pairs = size / 2;
+    const byeAt = new Set(Ladder.shuffle([...Array(pairs).keys()], rnd).slice(0, size - players.length));
+    const order = Ladder.shuffle(players, rnd);
+    const out = [];
+    let k = 0;
+    for (let i = 0; i < pairs; i++) out.push(byeAt.has(i) ? [order[k++], null] : [order[k++], order[k++]]);
+    return out;
+  },
+  // 전투력 = (20 + √활동점수 × 8) × (0.6 + 0.8×운) — 활동량이 많을수록 유리하지만 운으로 뒤집힌다
+  power(p, rnd) { return Math.round((20 + Math.sqrt(Ladder.score(p)) * 8) * (0.6 + 0.8 * rnd())); },
+  duel(a, b, rnd) {
+    const pa = Ladder.power(a, rnd), pb = Ladder.power(b, rnd);
+    let w;
+    if (pa !== pb) w = pa > pb ? a : b;
+    else if (Ladder.score(a) !== Ladder.score(b)) w = Ladder.score(a) > Ladder.score(b) ? a : b;
+    else w = rnd() < 0.5 ? a : b;
+    return { pa, pb, w };
+  },
+  run(players, rnd) {
+    rnd = rnd || Ladder.rand;
+    let pairs = Ladder.draw(players, rnd);
+    const rounds = [];
+    for (;;) {
+      const hasBye = pairs.some((pr) => !pr[1]);
+      const matches = pairs.map(([a, b]) => (b ? Object.assign({ a, b, bye: false }, Ladder.duel(a, b, rnd)) : { a, b: null, w: a, bye: true }));
+      rounds.push({ name: Ladder.roundName(pairs.length * 2, hasBye), matches });
+      const winners = matches.map((m) => m.w);
+      if (winners.length === 1) return { rounds, champion: winners[0] };
+      pairs = [];
+      for (let i = 0; i < winners.length; i += 2) pairs.push([winners[i], winners[i + 1]]);
+    }
+  },
+  // 주간 활동 순위 — 같은 점수는 같은 순위
+  ranks(players) {
+    const s = players.map((p) => Ladder.score(p));
+    return s.map((v) => 1 + s.filter((x) => x > v).length);
+  },
+};
+
+if (typeof document !== 'undefined') (function () {
+  const box = document.getElementById('battle');
+  const src = document.getElementById('battle-data');
+  if (!box || !src) return;
+  let data;
+  try { data = JSON.parse(src.textContent); } catch (e) { return; }
+  const isNum = (v) => typeof v === 'number' && isFinite(v) && v >= 0;
+  const str = (v) => (typeof v === 'string' ? v : '');
+  const players = (Array.isArray(data.players) ? data.players : [])
+    .filter((p) => p && typeof p.n === 'string' && p.n && isNum(p.u) && isNum(p.a) && isNum(p.d))
+    .map((p, i) => Object.assign({}, p, { i }));
+  if (players.length < 2) return;
+  Ladder.ranks(players).forEach((r, i) => { players[i].rank = r; });
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const COL = 100, STEP = 74, TOP = 36, GUT = 80;  // viewBox 단위 — 한 사람 열 폭 100
+  const INK = '#1C1512';
+  const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const champBox = box.querySelector('.bt-champ');
+  const who = box.querySelector('.bt-who');
+  const scroller = box.querySelector('.bt-scroll');
+  const board = box.querySelector('.bt-board');
+  const log = box.querySelector('.bt-rounds');
+  const again = box.querySelector('.bt-again');
+  const swipe = box.querySelector('.bt-swipe');
+  let timers = [];
+
+  // 머리 장식 — 마커·축마다 하나씩. 캐릭터 좌표(viewBox 48×56)에서 머리 꼭대기는 y=19
+  const HATS = {
+    wizard: [['path', { d: 'M11 23L25 0L37 23Z', fill: '#6B4FD8' }], ['ellipse', { cx: 24, cy: 23, rx: 15, ry: 3.2, fill: '#5139B0' }],
+      ['circle', { cx: 26, cy: 12, r: 1.9, fill: '#FFD84D' }]],
+    helm: [['path', { d: 'M8 28Q8 13 24 13Q40 13 40 28H35V24H13V28Z', fill: '#A7B0BA' }],
+      ['path', { d: 'M24 13Q26 3 35 3', fill: 'none', stroke: '#E8431B', 'stroke-width': 3.2, 'stroke-linecap': 'round' }]],
+    crest: [['path', { d: 'M9 26Q9 14 24 14Q39 14 39 26Z', fill: '#E0B43A' }],
+      ['path', { d: 'M14 15Q24 -1 34 15', fill: 'none', stroke: '#D2241A', 'stroke-width': 4, 'stroke-linecap': 'round' }]],
+    detective: [['path', { d: 'M15 22L17 9Q24 6 31 9L33 22Z', fill: '#8B6B47' }], ['rect', { x: 16, y: 17, width: 16, height: 3, fill: '#4A3523' }],
+      ['ellipse', { cx: 24, cy: 22, rx: 16, ry: 3, fill: '#6E5235' }]],
+    antenna: [['path', { d: 'M24 20V9', stroke: '#2B1D16', 'stroke-width': 2 }],
+      ['path', { d: 'M27 0L19 9H24L21 16L31 6H26L29 0Z', fill: '#FFC21A', stroke: '#B07800', 'stroke-width': 0.8 }]],
+    party: [['path', { d: 'M17 22L25 2L32 21Z', fill: '#F9308E' }], ['path', { d: 'M20.5 14L29.5 13M22.6 8.5L27.4 8', stroke: '#fff', 'stroke-width': 2 }],
+      ['circle', { cx: 25, cy: 2.8, r: 2.8, fill: '#FFC21A' }]],
+    flower: [['circle', { cx: 32, cy: 11, r: 3.4, fill: '#FF8FC4' }], ['circle', { cx: 37, cy: 15, r: 3.4, fill: '#FF8FC4' }],
+      ['circle', { cx: 35, cy: 20.5, r: 3.4, fill: '#FF8FC4' }], ['circle', { cx: 29, cy: 20.5, r: 3.4, fill: '#FF8FC4' }],
+      ['circle', { cx: 27.2, cy: 15, r: 3.4, fill: '#FF8FC4' }], ['circle', { cx: 32, cy: 16.3, r: 2.6, fill: '#FFC21A' }]],
+    band: [['path', { d: 'M8.5 28Q24 21 39.5 28V31.5Q24 24.5 8.5 31.5Z', fill: '#2A7FD0' }],
+      ['path', { d: 'M39 28.5Q43 25 47 27.5Q43 28.5 42 32Z', fill: '#2A7FD0' }]],
+    nightcap: [['path', { d: 'M9 25Q13 6 31 8Q42 10 44 21Q36 14 39 25Z', fill: '#4B5BA8' }], ['circle', { cx: 44, cy: 21.5, r: 3, fill: '#fff' }],
+      ['path', { d: 'M9.5 25H38.5', stroke: '#fff', 'stroke-width': 3, 'stroke-linecap': 'round' }]],
+    tophat: [['rect', { x: 16, y: 3, width: 16, height: 18, rx: 1.5, fill: '#2B2B33' }], ['rect', { x: 16, y: 15, width: 16, height: 3, fill: '#D2241A' }],
+      ['rect', { x: 10, y: 20, width: 28, height: 3.4, rx: 1.7, fill: '#2B2B33' }]],
+    halo: [['ellipse', { cx: 24, cy: 9, rx: 10, ry: 3, fill: 'none', stroke: '#FFC21A', 'stroke-width': 2.8 }],
+      ['path', { d: 'M8 30Q2 24 5 18Q9 23 11 26Z', fill: '#fff', stroke: '#C9BDB4', 'stroke-width': 0.8 }],
+      ['path', { d: 'M40 30Q46 24 43 18Q39 23 37 26Z', fill: '#fff', stroke: '#C9BDB4', 'stroke-width': 0.8 }]],
+    captain: [['path', { d: 'M11 23Q11 10 24 10Q37 10 37 23Z', fill: '#1F3A68' }], ['path', { d: 'M9 23H39Q36 27.5 24 27.5Q12 27.5 9 23Z', fill: '#15294A' }],
+      ['circle', { cx: 24, cy: 16.5, r: 2.7, fill: '#FFC21A' }]],
+    beret: [['ellipse', { cx: 21, cy: 20, rx: 14, ry: 5, fill: '#C2185B' }],
+      ['path', { d: 'M21 15V10.5', stroke: '#C2185B', 'stroke-width': 2.4, 'stroke-linecap': 'round' }]],
+    mortar: [['path', { d: 'M14 17V24H34V17Z', fill: '#2B2B33' }], ['path', { d: 'M5 14.5L24 7L43 14.5L24 22Z', fill: '#3A3A46' }],
+      ['path', { d: 'M38 14V25', stroke: '#FFC21A', 'stroke-width': 1.6 }], ['circle', { cx: 38, cy: 26, r: 2, fill: '#FFC21A' }]],
+    goggles: [['path', { d: 'M8 26Q24 19 40 26', fill: 'none', stroke: '#5A4636', 'stroke-width': 3 }],
+      ['circle', { cx: 18, cy: 23.5, r: 4.6, fill: '#9AD4F5', stroke: '#5A4636', 'stroke-width': 2 }],
+      ['circle', { cx: 30, cy: 23.5, r: 4.6, fill: '#9AD4F5', stroke: '#5A4636', 'stroke-width': 2 }]],
+    explorer: [['path', { d: 'M12 23Q12 8 24 8Q36 8 36 23Z', fill: '#D8C08A' }], ['rect', { x: 12, y: 18.5, width: 24, height: 3, fill: '#8B6B47' }],
+      ['ellipse', { cx: 24, cy: 23, rx: 17, ry: 2.8, fill: '#BFA163' }]],
+    sprout: [['path', { d: 'M24 20V11', stroke: '#3F9E5A', 'stroke-width': 2.2, 'stroke-linecap': 'round' }],
+      ['ellipse', { cx: 19.5, cy: 10, rx: 5, ry: 2.8, fill: '#5CC27A', transform: 'rotate(-25 19.5 10)' }],
+      ['ellipse', { cx: 28.5, cy: 10, rx: 5, ry: 2.8, fill: '#5CC27A', transform: 'rotate(25 28.5 10)' }]],
+  };
+  const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+
+  function el(tag, cls, txt) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt != null) e.textContent = String(txt);
+    return e;
+  }
+  function sv(tag, attrs) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    return e;
+  }
+  // 상세 페이지는 사이트 안 상대경로(m/이름.html)만 잇는다
+  function safeHref(h) { return typeof h === 'string' && /^m\/[A-Za-z0-9%._~-]+\.html$/.test(h) ? h : ''; }
+  function shortName(n) { return n.length === 3 ? n.slice(1) : n; }  // 좁은 폭 — 성 뺀 두 글자
+  function pct(v, of) { return (v / of * 100).toFixed(3) + '%'; }
+  function later(fn, ms) { if (reduce) fn(); else timers.push(setTimeout(fn, ms)); }
+
+  function eyes(s, kind) {
+    [18.5, 29.5].forEach((x, k) => {
+      if (kind === 'smile' || kind === 'sleepy') {  // ^^ 눈 · 지그시 감은 눈
+        const d = kind === 'smile' ? 'M' + (x - 3.6) + ' 36.5q3.6 -4.8 7.2 0' : 'M' + (x - 3.6) + ' 34q3.6 3.8 7.2 0';
+        s.appendChild(sv('path', { d, fill: 'none', stroke: INK, 'stroke-width': 2.3, 'stroke-linecap': 'round' }));
+        return;
+      }
+      s.appendChild(sv('circle', { cx: x, cy: 35, r: kind === 'wide' ? 5.2 : 4.3, fill: '#fff' }));
+      s.appendChild(sv('circle', { cx: x + 0.7, cy: 35.6, r: kind === 'sparkle' ? 3 : kind === 'wide' ? 1.9 : 2.3, fill: INK }));
+      if (kind === 'sparkle') s.appendChild(sv('circle', { cx: x + 1.8, cy: 34.2, r: 1.1, fill: '#fff' }));
+      if (kind === 'glasses') s.appendChild(sv('circle', { cx: x, cy: 35, r: 5.6, fill: 'none', stroke: INK, 'stroke-width': 1.7 }));
+      if (kind === 'sharp') s.appendChild(sv('path', { d: k ? 'M' + (x + 4.6) + ' 28.4l-8 2.6' : 'M' + (x - 4.6) + ' 28.4l8 2.6', stroke: INK, 'stroke-width': 2.3, 'stroke-linecap': 'round' }));
+    });
+  }
+
+  // 캐릭터 — 색 몸 + 눈(배지·축) + 모자(직업) + 손에 든 상징 이모지(오른쪽 아래)
+  function face(p) {
+    const c = Number.isInteger(p.c) && p.c >= 0 && p.c < 10 ? p.c : 0;
+    const s = sv('svg', { viewBox: '0 0 48 56', class: 'ch bt-c' + c, 'aria-hidden': 'true' });
+    s.appendChild(sv('ellipse', { cx: 24, cy: 53.5, rx: 12, ry: 2.3, fill: 'currentColor', opacity: 0.12 }));
+    s.appendChild(sv('circle', { class: 'bt-bd', cx: 24, cy: 35, r: 16 }));
+    s.appendChild(sv('ellipse', { cx: 17.5, cy: 26.5, rx: 5.5, ry: 3, fill: '#fff', opacity: 0.35 }));
+    const kind = str(p.y);
+    eyes(s, kind);
+    s.appendChild(sv('circle', { class: 'bt-ck', cx: 13.5, cy: 41, r: 2.6 }));
+    s.appendChild(sv('circle', { class: 'bt-ck', cx: 34.5, cy: 41, r: 2.6 }));
+    if (kind === 'wide') s.appendChild(sv('ellipse', { cx: 24, cy: 43.2, rx: 2.4, ry: 2.8, fill: INK }));
+    else if (kind === 'smile') s.appendChild(sv('path', { d: 'M19.5 41.2h9q-4.5 6.4 -9 0Z', fill: INK }));
+    else s.appendChild(sv('path', { class: 'bt-mo', d: 'M20 42.2q4 3.8 8 0' }));
+    (own(HATS, p.x) ? HATS[p.x] : HATS.sprout).forEach(([tag, attrs]) => s.appendChild(sv(tag, attrs)));
+    const prop = sv('text', { x: 40, y: 54, 'font-size': 17, 'text-anchor': 'middle' });
+    prop.textContent = str(p.e) || '⭐';
+    s.appendChild(prop);
+    return s;
+  }
+
+  function tile(p) {
+    const t = el('div', 'bt-tile');
+    t.tabIndex = 0;
+    const tip = [str(p.k), str(p.t) || str(p.j)].filter(Boolean).join(' · ');
+    if (tip) t.setAttribute('title', tip);
+    const inn = el('div', 'bt-in');
+    inn.appendChild(face(p));
+    const nm = el('div', 'bt-name');
+    nm.appendChild(el('span', 'bt-full', p.n));
+    nm.appendChild(el('span', 'bt-short', shortName(p.n)));
+    inn.appendChild(nm);
+    if (str(p.j)) inn.appendChild(el('div', 'bt-job', p.j));
+    inn.appendChild(el('div', 'bt-rank', '주간 활동 ' + p.rank + '위'));
+    const ic = el('div', 'bt-icons');
+    ic.setAttribute('title', '발화 ' + p.u + '건 · 산출물 ' + p.a + '건 · 활동 ' + p.d + '일');
+    ic.appendChild(el('span', '', '💬' + p.u));
+    ic.appendChild(el('span', '', '📎' + p.a));
+    ic.appendChild(el('span', '', '📅' + p.d));
+    inn.appendChild(ic);
+    t.appendChild(inn);
+    const st = el('div', 'bt-stats');
+    st.appendChild(el('b', '', str(p.e) + ' ' + (str(p.t) || str(p.j) || p.n)));
+    const stats = (Array.isArray(p.s) ? p.s : []).filter((x) => Array.isArray(x) && typeof x[0] === 'string' && isNum(x[1]));
+    stats.forEach(([label, v]) => {
+      const n = Math.max(1, Math.min(5, Math.round(v)));
+      const row = el('span', '', label);
+      row.appendChild(el('i', '', '●'.repeat(n) + '○'.repeat(5 - n)));
+      st.appendChild(row);
+    });
+    if (!stats.length) st.appendChild(el('span', '', '스탯은 아직 수집 중'));
+    t.appendChild(st);
+    t.appendChild(el('span', 'bt-stamp', '탈락'));
+    return t;
+  }
+
+  function basis(p) { return p.n + ' 발화 ' + p.u + '·산출물 ' + p.a + '·활동 ' + p.d + '일'; }
+
+  function render() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    const res = Ladder.run(players);
+    const R = res.rounds.length;
+    const leaves = [];
+    res.rounds[0].matches.forEach((m) => { leaves.push(m.a); if (m.b) leaves.push(m.b); });
+    const n = leaves.length, W = GUT + n * COL, H = TOP + R * STEP, cx = GUT + n * COL / 2;
+    const levelY = (r) => TOP + (R - r) * STEP;
+
+    board.replaceChildren();
+    board.style.setProperty('--n', String(n));
+    const fin = el('div');
+    fin.style.paddingLeft = pct(GUT, W);
+    fin.appendChild(el('div', 'bt-final', '결승전'));
+    board.appendChild(fin);
+    const region = el('div', 'bt-region');
+    const svg = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, 'aria-hidden': 'true' });
+    const ghosts = sv('g', {}), lines = sv('g', {});
+    svg.appendChild(ghosts);
+    svg.appendChild(lines);
+    region.appendChild(svg);
+    board.appendChild(region);
+    const tiles = el('div', 'bt-tiles');
+    tiles.style.paddingLeft = pct(GUT, W);
+    board.appendChild(tiles);
+
+    // 꺾쇠 선 한 줄 = 한 사람이 한 경기 분기점까지 올라가는 길. 회색 바탕선 위에 결과 선을 덧그린다
+    function seg(d, cls) {
+      ghosts.appendChild(sv('path', { d, class: 'bt-ghost' }));
+      const s = sv('path', { d, pathLength: 1, class: 'bt-seg ' + cls });
+      lines.appendChild(s);
+      return s;
+    }
+    const pos = {}, parts = {};
+    leaves.forEach((p, k) => {
+      pos[p.i] = { x: GUT + k * COL + COL / 2, y: H };
+      const t = tile(p);
+      parts[p.i] = { tile: t, minis: [] };
+      tiles.appendChild(t);
+    });
+    const steps = [];
+    res.rounds.forEach((rd, ri) => {
+      const r = ri + 1, y = levelY(r);
+      if (r < R) {
+        const lv = el('div', 'bt-lvl', rd.name);
+        lv.style.left = pct(GUT / 2, W);
+        lv.style.top = pct(y, H);
+        region.appendChild(lv);
+      }
+      const drawn = [], reveal = [];
+      rd.matches.forEach((m) => {
+        const pa = pos[m.a.i];
+        if (m.bye) {  // 부전승 — 가로대 없이 곧장 다음 라운드 높이로
+          drawn.push(seg('M' + pa.x + ' ' + pa.y + 'V' + y, 'win'));
+          pos[m.a.i] = { x: pa.x, y };
+          return;
+        }
+        const pb = pos[m.b.i];
+        const x = (pa.x + pb.x) / 2;
+        const loser = m.w === m.a ? m.b : m.a;
+        drawn.push(seg('M' + pa.x + ' ' + pa.y + 'V' + y + 'H' + x, m.w === m.a ? 'win' : 'lose'));
+        drawn.push(seg('M' + pb.x + ' ' + pb.y + 'V' + y + 'H' + x, m.w === m.b ? 'win' : 'lose'));
+        const mini = el('div', 'bt-mini');
+        mini.style.left = pct(x, W);
+        mini.style.top = pct(y, H);
+        mini.setAttribute('title', m.w.n);
+        mini.appendChild(face(m.w));
+        region.appendChild(mini);
+        parts[m.w.i].minis.push(mini);
+        reveal.push(() => {
+          mini.classList.add('bt-on');
+          parts[loser.i].tile.classList.add('out');
+          parts[loser.i].minis.forEach((e) => e.classList.add('out'));
+        });
+        pos[m.w.i] = { x, y };
+      });
+      steps.push({ drawn, reveal });
+    });
+    const champ = res.champion, pc = pos[champ.i];
+    const crown = seg('M' + pc.x + ' ' + pc.y + 'V' + TOP / 2 + 'H' + cx + 'V0', 'top');
+
+    champBox.classList.remove('bt-on');
+    const nameBox = el('div');
+    const cname = el('div', 'bt-cname');
+    const href = safeHref(champ.h);
+    if (href) {
+      const a = el('a', '', champ.n);
+      a.setAttribute('href', href);
+      cname.appendChild(a);
+    } else {
+      cname.textContent = champ.n;
+    }
+    nameBox.appendChild(cname);
+    const title = [str(champ.e), str(champ.t) || str(champ.j)].filter(Boolean).join(' ');
+    nameBox.appendChild(el('div', 'bt-cline', title + ' · 끝까지 올라온 한 주, 수고 많았어요 👏'));
+    who.replaceChildren(face(champ), nameBox);
+
+    log.replaceChildren();
+    res.rounds.forEach((rd) => {
+      const blk = el('div', 'bt-rd');
+      blk.appendChild(el('div', 'bt-rdname', rd.name));
+      const ul = el('ul', 'bt-mlist');
+      rd.matches.forEach((m) => {
+        const li = el('li');
+        if (m.bye) {
+          li.appendChild(el('span', 'w', m.a.n));
+          li.appendChild(el('span', 'l', '부전승'));
+          li.appendChild(el('small', '', basis(m.a)));
+        } else {
+          const aw = m.w === m.a;
+          li.appendChild(el('span', aw ? 'w' : 'l', m.a.n + ' ' + m.pa));
+          li.appendChild(el('span', 'vs', '⚔'));
+          li.appendChild(el('span', aw ? 'l' : 'w', m.pb + ' ' + m.b.n));
+          li.appendChild(el('small', '', basis(m.a) + '  vs  ' + basis(m.b)));
+        }
+        ul.appendChild(li);
+      });
+      blk.appendChild(ul);
+      log.appendChild(blk);
+    });
+
+    // 라운드마다 아래→위: 선이 올라가고, 잠시 뒤 진 쪽에 탈락 도장 · 이긴 쪽 미니 캐릭터가 분기점에 선다
+    let t = 300;
+    steps.forEach((st) => {
+      later(() => st.drawn.forEach((s) => s.classList.add('bt-on')), t);
+      later(() => st.reveal.forEach((f) => f()), t + 600);
+      t += 1100;
+    });
+    later(() => {
+      crown.classList.add('bt-on');
+      parts[champ.i].tile.classList.add('champ');
+      champBox.classList.add('bt-on');
+    }, t);
+
+    requestAnimationFrame(() => {
+      const over = scroller.scrollWidth - scroller.clientWidth;
+      scroller.scrollLeft = over > 0 ? over / 2 : 0;
+      if (swipe) swipe.textContent = over > 2 ? '대진표는 옆으로 밀어 볼 수 있어요' : '';
+    });
+  }
+
+  again.hidden = false;
+  again.addEventListener('click', render);
+  render();
+})();
+"""
+
+
+def battle_axis_order(d: dict[str, Any]) -> list[str]:
+    """profile.axes 의 축 키를 높은 값 순으로. 동점이면 BATTLE_AXES 순서 (정렬이 안정적이라 그대로 지켜진다)."""
+    axes = sub(sub(d, "profile"), "axes")
+    keys = [row[0] for row in BATTLE_AXES if row[0] in axes]
+    return sorted(keys, key=lambda k: -num(axes.get(k)))
+
+
+def battle_hero(d: dict[str, Any], taken: set[str] | frozenset[str] = frozenset()) -> dict[str, str]:
+    """캐릭터 — e 상징 이모지 · j 직업 · t 수식어 붙인 전체 직업 · x 모자 · y 눈.
+
+    직업은 말투 배지 마커로, 배지가 없으면 최고 축으로, 둘 다 없으면 신입 모험가.
+    수식어는 최고 축에서 붙이되 직업과 같은 뜻의 축이면 두 번째 축으로 — 같은 직업끼리 겹치지 않게.
+    그래도 앞 참가자(`taken`)와 전체 직업이 같으면 다음 축 수식어로 넘어간다.
+    """
+    badge = sub(sub(d, "signals"), "badge")
+    marker, quiet = text(badge.get("marker")), text(badge.get("kind")) == "안씀"
+    order = battle_axis_order(d)
+    axes = {row[0]: row for row in BATTLE_AXES}
+    if marker in BATTLE_HEROES:
+        emoji, many, few, hat, job_axis = BATTLE_HEROES[marker]
+        job = few if quiet else many
+    elif order:
+        job_axis = order[0]
+        emoji, job, hat = axes[job_axis][3:6]
+    else:
+        (emoji, job, hat), job_axis = BATTLE_DEFAULT_HERO, ""
+    mods = [k for k in order if k != job_axis]
+    titles = [f"{axes[k][2]} {job}" for k in mods] or [job]
+    title = next((t for t in titles if t not in taken), titles[0])
+    shown = "" if quiet else marker  # 안 쓰는 배지는 표정에 반영하지 않는다
+    if shown in ("웃음ㅋ", "웃음ㅎ"):
+        eye = "smile"
+    elif order and order[0] == "verification":
+        eye = "glasses"
+    elif order and order[0] == "exploration":
+        eye = "sparkle"
+    else:
+        eye = BATTLE_EYES.get(shown, "dot")
+    return {"e": emoji, "j": job, "t": title, "x": hat, "y": eye}
+
+
+def battle_colors(names: list[str]) -> dict[str, int]:
+    """몸 색 번호. 이름 해시에서 시작해 이미 쓴 색은 건너뛴다 — 참가자끼리 최대한 겹치지 않게, 이름 순이라 결정적이다."""
+    used: set[int] = set()
+    out: dict[str, int] = {}
+    for name in sorted(names):
+        if len(used) == BATTLE_PALETTE:  # 팔레트보다 많으면 한 바퀴 돌고 다시
+            used = set()
+        i = sum(ord(ch) for ch in name) % BATTLE_PALETTE
+        while i in used:
+            i = (i + 1) % BATTLE_PALETTE
+        used.add(i)
+        out[name] = i
+    return out
+
+
+def battle_week(d: dict[str, Any]) -> dict[str, float] | None:
+    """signals.week 의 발화·산출물·활동일. 하나라도 없거나 0 이상 숫자가 아니면 None — 결투에서 뺀다."""
+    week = sub(sub(d, "signals"), "week")
+    out: dict[str, float] = {}
+    for key, short in BATTLE_WEEK_KEYS:
+        v = week.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
+            return None
+        out[short] = int(v) if float(v).is_integer() else v
+    return out
+
+
+def battle_section(profiles: list[dict[str, Any]], member_hrefs: dict[str, str]) -> str:
+    """활동 월드컵 — 최근 7일 활동량 × 운으로 붙는 토너먼트. 맨 위 재미 섹션 (2026-10-15).
+
+    HTML 에는 빈 대진표 틀과 참가자 JSON 만 싣고, 대진·경기는 브라우저가 로드마다 새로 돌린다.
+    JSON 에는 이름·주간 숫자·상세 링크·캐릭터(공개된 배지·5축·별명에서 고른 값)·몸 색 번호만 싣는다.
+    week 가 있는 사람이 2명 미만이면 섹션을 그리지 않는다.
+    """
+    entrants = [(d, battle_week(d)) for d in profiles if text(d.get("name"))]
+    entrants = [(d, w) for d, w in entrants if w is not None]
+    if len(entrants) < 2:
+        return ""
+    colors = battle_colors([text(d.get("name")) for d, _ in entrants])
+    players: list[dict[str, Any]] = []
+    taken: set[str] = set()
+    for d, week in entrants:
+        name = text(d.get("name"))
+        fun = d.get("fun") if isinstance(d.get("fun"), dict) else {}
+        axes = sub(sub(d, "profile"), "axes")
+        stats = [[row[1], int(round(max(1.0, min(5.0, num(axes.get(row[0]))))))] for row in BATTLE_AXES if row[0] in axes]
+        hero = battle_hero(d, taken)
+        taken.add(hero["t"])
+        players.append({
+            "n": name, **week, "h": member_hrefs.get(name, ""), **hero,
+            "k": text(fun.get("nickname")), "c": colors[name], "s": stats,
+        })
+    week0 = sub(sub(entrants[0][0], "signals"), "week")
+    span = (text(week0.get("from")), text(week0.get("to")))
+    blob = json.dumps({"from": span[0], "to": span[1], "players": players}, ensure_ascii=False)
+    # </script> 탈출 방지 — JSON 안의 < > & 를 유니코드 이스케이프로
+    blob = blob.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    period = f"최근 7일({day_ko_str(span[0])}~{day_ko_str(span[1])})" if span[0] and span[1] else "최근 7일"
+    body = (
+        '<div class="btwrap" id="battle">'
+        '<div class="bt-champ" aria-live="polite"><div class="bt-trophy" aria-hidden="true">🏆</div>'
+        '<div class="bt-kicker">이번 주 활동왕</div><div class="bt-wait">대진 추첨 중…</div><div class="bt-who"></div></div>'
+        '<div class="bt-scroll"><div class="bt-board"></div></div>'
+        '<div class="bt-foot"><button type="button" class="bt-again" hidden>다시 붙기 🔄</button>'
+        '<span class="bt-hint">활동점수 = 발화 + 5×산출물 + 10×활동일 · 경기마다 운이 섞인다 · 타일에 올리거나 누르면 RPG 스탯</span>'
+        '<span class="bt-hint bt-swipe"></span></div>'
+        '<details class="bt-log"><summary>경기 기록 · 점수</summary><div class="bt-rounds"></div></details>'
+        '<noscript><p class="empty">자바스크립트를 켜야 대진표가 그려진다.</p></noscript>'
+        "</div>"
+        f'<script type="application/json" id="battle-data">{blob}</script>'
+        f"<script>{BATTLE_JS}</script>"
+    )
+    subtitle = f"{period} 활동량 × 운 · 새로고침하면 대진이 바뀐다 · 재미로만, 평가와 무관"
+    return sec("sec-battle", "재미 · 운 포함", "이번 주 활동 월드컵", body, subtitle)
+
+
 # ───────────────────────────────────────────────────────────────────── 목록·빌드
 
 
@@ -1313,7 +1966,7 @@ def render_index(
     if low_n:
         chips.append(f'<span class="chip"><b>표본 부족</b>{low_n}명</span>')
     hero = (
-        '<header class="hero"><div class="in"><div class="hero-eyebrow">업무 요약 · 파트 일정 · 프로젝트 · 멤버 · 네트워킹비</div>'
+        '<header class="hero"><div class="in"><div class="hero-eyebrow">활동 월드컵 · 업무 요약 · 파트 일정 · 프로젝트 · 멤버 · 네트워킹비</div>'
         f'<h1 class="hero-title">{esc(part)}</h1>'
         '<div class="hero-sub">동기화 때 정리한 업무 요약과 파트 일정, 진행 중인 과제 요약, 파트 텔레그램 방에서 집계한 말투 신호로 만든 파트원 카드, 사람별 네트워킹비 잔액. '
         "위키 본문과 원본 대화는 여기에 실리지 않는다.</div>"
@@ -1329,8 +1982,9 @@ def render_index(
     else:
         pcards = card("", '<p class="empty" style="margin:0">아직 프로젝트 카드가 없다. salesplus-wiki 의 data/projects/ 에 채운다.</p>')
     s_projects = '<div id="projects"></div>' + sec("sec-proj", "위키 요약", "프로젝트", pcards, "진행률은 마일스톤 완료 수 · 확정 계획이 아니다")
-    # 순서는 오늘 업무 요약 → 파트 일정(오늘·내일) → 프로젝트 → 멤버 → 네트워킹비 → 최근 변경
-    # (2026-09-17 결정, 창은 2026-09-22, 네트워킹비는 개인카드 아래에 2026-09-22 추가)
+    # 순서는 활동 월드컵(재미) → 오늘 업무 요약 → 파트 일정(오늘·내일) → 프로젝트 → 멤버 → 네트워킹비 → 최근 변경
+    # (2026-09-17 결정, 창은 2026-09-22, 네트워킹비는 개인카드 아래에 2026-09-22 추가, 활동 월드컵은 맨 위에 2026-10-15 추가)
+    s_battle = battle_section(profiles, member_hrefs)
     s_daily = daily_section(daily, today)
     s_budget = budget_section(budget, member_hrefs)
     s_chg = changelog_section(changelog, today, member_hrefs, project_hrefs)
@@ -1342,7 +1996,7 @@ def render_index(
             f'<div class="warnbox skips"><h3>검증에서 건너뛴 파일 {len(skipped)}건</h3><ul>{items}</ul>'
             '<p style="margin-top:9px">한 건 때문에 전체가 막히지 않도록 그 파일만 빼고 빌드했다. 고치면 다음 빌드에 다시 들어온다.</p></div>'
         )
-    body = hero + banner_html() + '<main class="wrap">' + s_daily + s_sched + s_projects + s_members + s_budget + s_chg + skips + footer_html(part, built) + "</main>"
+    body = hero + banner_html() + '<main class="wrap">' + s_battle + s_daily + s_sched + s_projects + s_members + s_budget + s_chg + skips + footer_html(part, built) + "</main>"
     return html_doc(f"{part} 멤버 프로필 · 프로젝트", body)
 
 

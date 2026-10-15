@@ -34,6 +34,16 @@ from cards_data import (  # noqa: E402
     validate_daily,
     validate_schedule,
 )
+from build_site import (  # noqa: E402
+    BATTLE_DEFAULT_HERO,
+    BATTLE_HEROES,
+    BATTLE_JS,
+    BATTLE_PALETTE,
+    battle_colors,
+    battle_hero,
+    battle_section,
+    render_index,
+)
 
 WED = date(2026, 9, 16)  # 수
 THU = date(2026, 9, 17)  # 목
@@ -618,6 +628,138 @@ class LoadLocalSingleFiles(unittest.TestCase):
             card = next(c for c in load_local(root) if c.kind == "changelog")
             self.assertFalse(card.ok)
             self.assertTrue(card.errors)
+
+
+def member(name: str, week: object = None, **over) -> dict:
+    """활동 월드컵 픽스처 — week 를 주면 signals.week 로 싣는다."""
+    base: dict = {"schema_version": 1, "name": name, "part": "세일즈플러스파트", "signals": {}, "fun": None}
+    if week is not None:
+        base["signals"]["week"] = week
+    base.update(over)
+    return base
+
+
+def wk(u: int = 10, a: int = 2, d: int = 3) -> dict:
+    return {"from": "2026-10-09", "to": "2026-10-15", "utterances": u, "artifacts": a, "active_days": d}
+
+
+def battle_payload(page: str) -> dict:
+    head = '<script type="application/json" id="battle-data">'
+    start = page.index(head) + len(head)
+    return json.loads(page[start:page.index("</script>", start)])
+
+
+class BattleSection(unittest.TestCase):
+    """활동 월드컵 — 맨 위 재미 섹션. 대진·점수는 브라우저가 매번 계산하고, 빌더는 참가자 JSON 만 싣는다."""
+
+    def index(self, profiles: list[dict]) -> str:
+        return render_index(profiles, [], [], "세일즈플러스파트", "2026-10-15 09:00 KST", "2026-10-15",
+                            today=date(2026, 10, 15), daily=daily())
+
+    def test_업무_요약보다_앞에_나온다(self):
+        page = self.index([member("김동준", wk()), member("임혜성", wk(30, 1, 5))])
+        self.assertIn('class="sec sec-battle"', page)
+        self.assertLess(page.index('class="sec sec-battle"'), page.index('class="sec sec-daily"'))
+
+    def test_이름의_script_종료_태그가_데이터를_탈출하지_못한다(self):
+        evil = "</script><b>"
+        page = self.index([member(evil, wk()), member("임혜성", wk())])
+        self.assertNotIn(evil, page)
+        names = [p["n"] for p in battle_payload(page)["players"]]
+        self.assertIn(evil, names)  # 브라우저가 읽으면 원래 이름 그대로
+
+    def test_상태_클래스가_전역_on_규칙과_겹치지_않는다(self):
+        # 전역 `.on`(일정 "진행 중" 라벨)이 nowrap·작은 글씨를 물려 360px 에서 우승 문구가 잘렸다
+        self.assertNotRegex(BATTLE_JS, r"classList\.(add|remove|toggle)\('on'\)")
+
+    def test_week_가진_멤버가_2명_미만이면_섹션이_없다(self):
+        page = self.index([member("김동준", wk()), member("임혜성")])
+        self.assertNotIn('class="sec sec-battle"', page)  # CSS 에는 클래스 이름이 늘 있다
+        self.assertNotIn('id="battle-data"', page)
+        self.assertEqual(battle_section([member("김동준", wk())], {}), "")
+
+    def test_week_가_없거나_숫자가_아닌_멤버는_빠진다(self):
+        bad = wk()
+        bad["artifacts"] = "3"
+        page = self.index([member("김동준", wk()), member("임혜성"), member("조수훈", bad), member("소예성", wk(5, 0, 1))])
+        data = battle_payload(page)
+        self.assertEqual([p["n"] for p in data["players"]], ["김동준", "소예성"])
+        self.assertEqual((data["from"], data["to"]), ("2026-10-09", "2026-10-15"))
+        self.assertEqual(data["players"][1]["u"], 5)
+        self.assertEqual(data["players"][0]["h"], "m/%EA%B9%80%EB%8F%99%EC%A4%80.html")
+
+    def test_싣는_필드는_이름_숫자_캐릭터뿐(self):
+        d = member("김동준", wk(), fun={"nickname": "별명"}, profile={"axes": {"delegation": 2, "exploration": 4}})
+        d["signals"].update({"markers": {"단정": 3}, "endings_top": ["요"], "badge": {"marker": "단정", "kind": "많이"}})
+        p = battle_payload(self.index([d, member("임혜성", wk())]))["players"][0]
+        self.assertEqual(set(p), {"n", "u", "a", "d", "h", "e", "j", "t", "x", "y", "k", "c", "s"})
+        self.assertEqual(p["s"], [["리더십", 2], ["창의", 4]])
+        self.assertEqual((p["k"], p["j"], p["t"]), ("별명", "결단 검사", "호기심 많은 결단 검사"))
+
+    def test_fun_null_이면_별명은_싣지_않는다(self):
+        d = member("김동준", wk(), fun=None)
+        d["signals"]["badge"] = {"marker": "느낌표", "kind": "많이"}
+        p = battle_payload(self.index([d, member("임혜성", wk())]))["players"][0]
+        self.assertEqual((p["k"], p["j"]), ("", "번개 전령"))
+
+
+class BattleHero(unittest.TestCase):
+    """캐릭터 — 직업은 말투 배지, 없으면 최고 축, 둘 다 없으면 신입 모험가. 수식어는 축에서 붙인다."""
+
+    def hero(self, badge: dict | None = None, axes: dict | None = None, fun: object = None, **kw) -> dict:
+        d = member("김동준", fun=fun, signals={"badge": badge} if badge else {})
+        if axes:
+            d["profile"] = {"axes": axes}
+        return battle_hero(d, **kw)
+
+    def test_배지_마커로_직업을_고른다(self):
+        h = self.hero({"marker": "제안형", "ratio": 2.5, "kind": "많이"}, fun={})
+        self.assertEqual((h["e"], h["j"], h["x"]), ("🧙", "아이디어 마법사", "wizard"))
+        h = self.hero({"marker": "확인요구", "kind": "많이"}, fun={})
+        self.assertEqual((h["e"], h["j"]), ("🛡️", "검증 수호자"))
+
+    def test_fun_null_이어도_배지가_있으면_배지_직업(self):
+        h = self.hero({"marker": "느낌표", "kind": "많이"}, fun=None)
+        self.assertEqual((h["e"], h["j"], h["y"]), ("⚡", "번개 전령", "wide"))
+
+    def test_안_쓰는_배지는_반대_뜻의_호의적인_이름(self):
+        h = self.hero({"marker": "물결", "kind": "안씀"})
+        self.assertEqual((h["e"], h["j"]), ("🌊", "직진 서퍼"))
+
+    def test_배지가_없으면_최고_축으로_직업_동점이면_고정_순서(self):
+        h = self.hero(axes={"exploration": 4, "planning": 4, "delegation": 2})
+        self.assertEqual((h["e"], h["j"], h["t"]), ("📜", "전략가", "호기심 많은 전략가"))
+
+    def test_배지도_축도_없으면_신입_모험가(self):
+        h = self.hero()
+        self.assertEqual((h["e"], h["j"], h["t"], h["x"]), ("⭐", "신입 모험가", "신입 모험가", "sprout"))
+        self.assertEqual(self.hero({"marker": "새마커", "kind": "많이"})["j"], BATTLE_DEFAULT_HERO[1])
+
+    def test_수식어는_최고_축_같은_뜻이면_두번째_축(self):
+        h = self.hero({"marker": "위임분담", "kind": "많이"}, axes={"delegation": 5, "verification": 3})
+        self.assertEqual(h["t"], "빈틈없는 작전 지휘관")
+        h = self.hero({"marker": "단정", "kind": "많이"}, axes={"delegation": 5, "verification": 3})
+        self.assertEqual(h["t"], "든든한 결단 검사")
+
+    def test_앞_참가자와_전체_직업이_같으면_다음_축_수식어(self):
+        kw = {"badge": {"marker": "단정", "kind": "많이"}, "axes": {"delegation": 5, "verification": 3}}
+        self.assertEqual(self.hero(**kw, taken={"든든한 결단 검사"})["t"], "빈틈없는 결단 검사")
+
+    def test_눈_웃음_배지는_웃는_눈_검증이_최고면_안경(self):
+        self.assertEqual(self.hero({"marker": "웃음ㅋ", "kind": "많이"}, axes={"verification": 5})["y"], "smile")
+        self.assertEqual(self.hero({"marker": "단정", "kind": "많이"}, axes={"verification": 5})["y"], "glasses")
+        self.assertEqual(self.hero(axes={"exploration": 5})["y"], "sparkle")
+
+    def test_몸_색은_참가자끼리_겹치지_않는다(self):
+        names = ["강돈희", "고윤지", "김동준", "소예성", "유지영", "이현진", "임미향", "임혜성", "조수훈", "황혜경"]
+        colors = battle_colors(names)
+        self.assertEqual(len(set(colors.values())), len(names))
+        self.assertTrue(all(0 <= c < BATTLE_PALETTE for c in colors.values()))
+        self.assertEqual(colors, battle_colors(list(reversed(names))))  # 입력 순서와 무관하게 결정적
+
+    def test_매핑의_칸은_모두_비어있지_않다(self):
+        for marker, row in BATTLE_HEROES.items():
+            self.assertTrue(all(row[:4]), marker)
 
 
 if __name__ == "__main__":

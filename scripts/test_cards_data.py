@@ -671,6 +671,14 @@ class BattleSection(unittest.TestCase):
         names = [p["n"] for p in battle_payload(page)["players"]]
         self.assertIn(evil, names)  # 브라우저가 읽으면 원래 이름 그대로
 
+    def test_승패에_운이_없다(self):
+        # 승패는 활동점수로만 — 새로고침해도 우승자가 바뀌지 않게 (2026-10-15 결정). 무작위는 대진 셔플에만 쓴다
+        duel = BATTLE_JS[BATTLE_JS.index("duel(a, b)"):BATTLE_JS.index("run(players")]
+        self.assertNotIn("rnd", duel)
+        self.assertNotIn("power(", BATTLE_JS)
+        page = self.index([member("김동준", wk()), member("임혜성", wk(30, 1, 5))])
+        self.assertNotIn("운이 섞", page)
+
     def test_상태_클래스가_전역_on_규칙과_겹치지_않는다(self):
         # 전역 `.on`(일정 "진행 중" 라벨)이 nowrap·작은 글씨를 물려 360px 에서 우승 문구가 잘렸다
         self.assertNotRegex(BATTLE_JS, r"classList\.(add|remove|toggle)\('on'\)")

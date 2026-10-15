@@ -1457,7 +1457,7 @@ const Ladder = {
     }
     return Math.random();
   },
-  // 활동점수 = 발화 + 5×산출물 + 10×활동일
+  // 활동점수 = 수다(발화) + 5×산출물 + 10×활동일
   score(p) { return p.u + 5 * p.a + 10 * p.d; },
   shuffle(xs, rnd) {
     const out = xs.slice();
@@ -1484,15 +1484,15 @@ const Ladder = {
     for (let i = 0; i < pairs; i++) out.push(byeAt.has(i) ? [order[k++], null] : [order[k++], order[k++]]);
     return out;
   },
-  // 전투력 = (20 + √활동점수 × 8) × (0.6 + 0.8×운) — 활동량이 많을수록 유리하지만 운으로 뒤집힌다
-  power(p, rnd) { return Math.round((20 + Math.sqrt(Ladder.score(p)) * 8) * (0.6 + 0.8 * rnd())); },
-  duel(a, b, rnd) {
-    const pa = Ladder.power(a, rnd), pb = Ladder.power(b, rnd);
-    let w;
-    if (pa !== pb) w = pa > pb ? a : b;
-    else if (Ladder.score(a) !== Ladder.score(b)) w = Ladder.score(a) > Ladder.score(b) ? a : b;
-    else w = rnd() < 0.5 ? a : b;
-    return { pa, pb, w };
+  // 승패는 활동점수로만 가린다 (운 없음) — 대진은 새로고침마다 바뀌어도 우승자는 늘 활동점수 1위다.
+  // 동점이면 산출물 → 활동일 → 이름 순으로 고정해 가린다
+  beats(a, b) {
+    const ka = [Ladder.score(a), a.a, a.d], kb = [Ladder.score(b), b.a, b.d];
+    for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] > kb[i];
+    return a.n < b.n;
+  },
+  duel(a, b) {
+    return { pa: Ladder.score(a), pb: Ladder.score(b), w: Ladder.beats(a, b) ? a : b };
   },
   run(players, rnd) {
     rnd = rnd || Ladder.rand;
@@ -1500,7 +1500,7 @@ const Ladder = {
     const rounds = [];
     for (;;) {
       const hasBye = pairs.some((pr) => !pr[1]);
-      const matches = pairs.map(([a, b]) => (b ? Object.assign({ a, b, bye: false }, Ladder.duel(a, b, rnd)) : { a, b: null, w: a, bye: true }));
+      const matches = pairs.map(([a, b]) => (b ? Object.assign({ a, b, bye: false }, Ladder.duel(a, b)) : { a, b: null, w: a, bye: true }));
       rounds.push({ name: Ladder.roundName(pairs.length * 2, hasBye), matches });
       const winners = matches.map((m) => m.w);
       if (winners.length === 1) return { rounds, champion: winners[0] };
@@ -1908,7 +1908,8 @@ def battle_week(d: dict[str, Any]) -> dict[str, float] | None:
 
 
 def battle_section(profiles: list[dict[str, Any]], member_hrefs: dict[str, str]) -> str:
-    """활동 월드컵 — 최근 7일 활동량 × 운으로 붙는 토너먼트. 맨 위 재미 섹션 (2026-10-15).
+    """활동 월드컵 — 최근 7일 활동점수로 붙는 토너먼트. 맨 위 재미 섹션 (2026-10-15).
+    승패는 활동점수로만 가린다(운 없음, 2026-10-15 결정) — 대진은 로드마다 바뀌어도 우승자는 늘 1위다.
 
     HTML 에는 빈 대진표 틀과 참가자 JSON 만 싣고, 대진·경기는 브라우저가 로드마다 새로 돌린다.
     JSON 에는 이름·주간 숫자·상세 링크·캐릭터(공개된 배지·5축·별명에서 고른 값)·몸 색 번호만 싣는다.
@@ -1947,7 +1948,7 @@ def battle_section(profiles: list[dict[str, Any]], member_hrefs: dict[str, str])
         '<div class="bt-kicker">이번 주 활동왕</div><div class="bt-wait">대진 추첨 중…</div><div class="bt-who"></div></div>'
         '<div class="bt-scroll"><div class="bt-board"></div></div>'
         '<div class="bt-foot"><button type="button" class="bt-again" hidden>다시 붙기 🔄</button>'
-        '<span class="bt-hint">활동점수 = 발화 + 5×산출물 + 10×활동일 · 경기마다 운이 섞인다 · 타일에 올리거나 누르면 RPG 스탯</span>'
+        '<span class="bt-hint">활동점수 = 수다(발화) + 5×산출물 + 10×활동일 · 점수가 높은 쪽이 이긴다 · 타일에 올리거나 누르면 RPG 스탯</span>'
         '<span class="bt-hint bt-swipe"></span></div>'
         '<details class="bt-log"><summary>경기 기록 · 점수</summary><div class="bt-rounds"></div></details>'
         '<noscript><p class="empty">자바스크립트를 켜야 대진표가 그려진다.</p></noscript>'
@@ -1955,8 +1956,8 @@ def battle_section(profiles: list[dict[str, Any]], member_hrefs: dict[str, str])
         f'<script type="application/json" id="battle-data">{blob}</script>'
         f"<script>{BATTLE_JS}</script>"
     )
-    subtitle = f"{period} 활동량 × 운 · 새로고침하면 대진이 바뀐다 · 재미로만, 평가와 무관"
-    return sec("sec-battle", "재미 · 운 포함", "이번 주 활동 월드컵", body, subtitle)
+    subtitle = f"{period} 활동점수 · 새로고침하면 대진만 바뀌고 우승자는 그대로 · 재미로만, 평가와 무관"
+    return sec("sec-battle", "재미 · 활동점수", "이번 주 활동 월드컵", body, subtitle)
 
 
 # ───────────────────────────────────────────────────────────────────── 목록·빌드

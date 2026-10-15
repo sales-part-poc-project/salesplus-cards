@@ -1431,6 +1431,14 @@ BATTLE_AXES = (
     ("exploration", "창의", "호기심 많은", "🔭", "탐험가", "explorer"),
 )
 BATTLE_DEFAULT_HERO = ("⭐", "신입 모험가", "sprout")  # 배지도 5축도 없을 때
+# 상징 이모지가 참가자끼리 겹치면 쓰는 같은 테마의 대체 아이콘. 다 쓰였으면 BATTLE_ICON_SPARE 에서
+BATTLE_ICON_ALTS = {
+    "🧙": ("🪄", "🔮", "💡"), "🗡️": ("⚔️", "🏹"), "🛡️": ("🏰", "🔰"), "🔍": ("🕵️", "🔎"),
+    "⚡": ("📣", "🚀"), "😆": ("🎉", "🤣"), "😊": ("🌷", "🍀", "☀️"), "🌊": ("🏄", "🐬"),
+    "🌙": ("✨", "🌌"), "🎩": ("👑", "🎖️"), "🕊️": ("🤝", "🌿"), "🧭": ("🚩", "🗺️", "⚓"),
+    "🌸": ("🎵", "🎻"), "📜": ("♟️", "🗂️"), "🔬": ("🛠️", "⚙️"), "🔭": ("🧗", "🌍"), "⭐": ("🌱", "🐣"),
+}
+BATTLE_ICON_SPARE = ("🎯", "🔥", "🌈", "🦄", "🐯", "🦉", "🐳", "🎈", "🍩", "🧩")
 # 눈 모양 — 웃음 배지는 ^^ 눈, 최고 축이 검증이면 안경·탐색이면 반짝 눈, 나머지는 배지별
 BATTLE_EYES = {"느낌표": "wide", "말줄임": "sleepy", "단정": "sharp", "물음표": "sparkle"}
 BATTLE_PALETTE = 10  # 캐릭터 몸 색 수 — CSS .bt-c0 ~ .bt-c9
@@ -1872,6 +1880,21 @@ def battle_colors(names: list[str]) -> dict[str, int]:
     return out
 
 
+def battle_icons(primary: dict[str, str]) -> dict[str, str]:
+    """이름 → 상징 이모지. 이름 순으로 자기 이모지 → 같은 테마 대체 → 예비 순으로 아직 안 쓴 것을 고른다.
+
+    몸 색처럼 참가자끼리 겹치지 않게, 이름 순이라 결정적이다. 후보가 바닥나면 자기 이모지를 그대로 쓴다.
+    """
+    used: set[str] = set()
+    out: dict[str, str] = {}
+    for name in sorted(primary):
+        own = primary[name]
+        pick = next((e for e in (own, *BATTLE_ICON_ALTS.get(own, ()), *BATTLE_ICON_SPARE) if e not in used), own)
+        used.add(pick)
+        out[name] = pick
+    return out
+
+
 def battle_week(d: dict[str, Any]) -> dict[str, float] | None:
     """signals.week 의 발화·산출물·활동일. 하나라도 없거나 0 이상 숫자가 아니면 None — 결투에서 뺀다."""
     week = sub(sub(d, "signals"), "week")
@@ -1909,6 +1932,9 @@ def battle_section(profiles: list[dict[str, Any]], member_hrefs: dict[str, str])
             "n": name, **week, "h": member_hrefs.get(name, ""), **hero,
             "k": text(fun.get("nickname")), "c": colors[name], "s": stats,
         })
+    icons = battle_icons({p["n"]: p["e"] for p in players})
+    for p in players:
+        p["e"] = icons[p["n"]]
     week0 = sub(sub(entrants[0][0], "signals"), "week")
     span = (text(week0.get("from")), text(week0.get("to")))
     blob = json.dumps({"from": span[0], "to": span[1], "players": players}, ensure_ascii=False)

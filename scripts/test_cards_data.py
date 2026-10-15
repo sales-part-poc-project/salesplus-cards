@@ -37,10 +37,13 @@ from cards_data import (  # noqa: E402
 from build_site import (  # noqa: E402
     BATTLE_DEFAULT_HERO,
     BATTLE_HEROES,
+    BATTLE_ICON_ALTS,
+    BATTLE_ICON_SPARE,
     BATTLE_JS,
     BATTLE_PALETTE,
     battle_colors,
     battle_hero,
+    battle_icons,
     battle_section,
     render_index,
 )
@@ -756,6 +759,27 @@ class BattleHero(unittest.TestCase):
         self.assertEqual(len(set(colors.values())), len(names))
         self.assertTrue(all(0 <= c < BATTLE_PALETTE for c in colors.values()))
         self.assertEqual(colors, battle_colors(list(reversed(names))))  # 입력 순서와 무관하게 결정적
+
+    def test_상징_아이콘은_참가자끼리_겹치지_않는다(self):
+        primary = {"김동준": "🧙", "유지영": "🧙", "이현진": "🧭", "고윤지": "🧭", "강돈희": "😊", "임미향": "😊"}
+        icons = battle_icons(primary)
+        self.assertEqual(len(set(icons.values())), len(primary))
+        self.assertEqual(icons["김동준"], "🧙")  # 이름 순으로 먼저인 사람이 자기 이모지
+        self.assertIn(icons["유지영"], BATTLE_ICON_ALTS["🧙"])  # 다음 사람은 같은 테마 대체
+        self.assertEqual(icons, battle_icons(dict(reversed(list(primary.items())))))  # 결정적
+
+    def test_대체_아이콘이_바닥나면_예비에서_고른다(self):
+        primary = {f"사람{i}": "🗡️" for i in range(4)}  # 자기 1 + 대체 2 → 넷째는 예비
+        icons = battle_icons(primary)
+        self.assertEqual(len(set(icons.values())), 4)
+        self.assertIn(icons["사람3"], BATTLE_ICON_SPARE)
+
+    def test_대진표_데이터의_아이콘이_겹치지_않는다(self):
+        same = {"week": wk(), "badge": {"marker": "제안형", "kind": "많이"}}
+        people = [member(n, signals=dict(same), profile={"axes": {"exploration": 5}}) for n in ("김동준", "유지영", "황혜경")]
+        page = render_index(people, [], [], "세일즈플러스파트", "2026-10-15 09:00 KST", "2026-10-15", today=date(2026, 10, 15))
+        icons = [p["e"] for p in battle_payload(page)["players"]]
+        self.assertEqual(len(set(icons)), 3)
 
     def test_매핑의_칸은_모두_비어있지_않다(self):
         for marker, row in BATTLE_HEROES.items():

@@ -89,6 +89,9 @@ WORK_STATE_HINTS = (
     ("보류", "ws-hold"),
     ("미착수", "ws-todo"),
 )
+# 포켓몬 배틀(별도 저장소 salesplus-pokemon, 개인 AWS 의 CloudFront) 주소. 배포 전이라 비어 있으면 칩을 그리지 않는다.
+# 배포가 끝나면 스택 출력 WebUrl 을 여기에 적는다 (2026-10-21)
+POKEMON_URL = ""
 PROJECT_BANNER = "과제 페이지는 위키 요약이다. 일정·범위는 데이터 기준일 시점의 상태이며 확정이 아니다."
 SIGNAL_ROWS = (
     ("utterances", "발화 수", "건"),
@@ -2000,6 +2003,8 @@ def render_index(
         chips.append(f'<span class="chip"><b>표본 부족</b>{low_n}명</span>')
     if esports:  # e스포츠 방 재미 페이지 (build_esports.py) — 만들어졌을 때만 잇는다
         chips.append('<a class="chip chip-link" href="esports.html"><b>🎮 별들의 전쟁</b>점심 스타 전적실 →</a>')
+    if POKEMON_URL:  # 포켓몬 배틀 — 위키 동기화로 받은 알로 하는 게임. 주소가 정해졌을 때만 잇는다
+        chips.append(f'<a class="chip chip-link" href="{esc(POKEMON_URL)}" rel="noopener"><b>⚡ 포켓몬 배틀</b>알 부화 · 대전 →</a>')
     hero = (
         '<header class="hero"><div class="in"><div class="hero-eyebrow">활동 월드컵 · 업무 요약 · 파트 일정 · 프로젝트 · 멤버 · 네트워킹비</div>'
         f'<h1 class="hero-title">{esc(part)}</h1>'

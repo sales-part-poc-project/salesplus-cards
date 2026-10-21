@@ -15,6 +15,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import date
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from cards_data import (  # noqa: E402
     validate_daily,
     validate_schedule,
 )
+import build_site  # noqa: E402
 from build_site import (  # noqa: E402
     BATTLE_DEFAULT_HERO,
     BATTLE_HEROES,
@@ -792,6 +794,23 @@ class BattleHero(unittest.TestCase):
     def test_매핑의_칸은_모두_비어있지_않다(self):
         for marker, row in BATTLE_HEROES.items():
             self.assertTrue(all(row[:4]), marker)
+
+
+class PokemonChip(unittest.TestCase):
+    """포켓몬 배틀 링크 칩 — 주소(build_site.POKEMON_URL)가 정해졌을 때만 히어로에 붙는다."""
+
+    def index(self) -> str:
+        return render_index([], [], [], "세일즈플러스파트", "2026-10-21 09:00 KST", "2026-10-21", today=date(2026, 10, 21))
+
+    def test_주소가_비어_있으면_칩이_없다(self):
+        with mock.patch.object(build_site, "POKEMON_URL", ""):
+            self.assertNotIn("포켓몬 배틀", self.index())
+
+    def test_주소가_있으면_칩이_그_주소로_간다(self):
+        with mock.patch.object(build_site, "POKEMON_URL", "https://example.cloudfront.net/?a=1&b=2"):
+            page = self.index()
+        self.assertIn("포켓몬 배틀", page)
+        self.assertIn('href="https://example.cloudfront.net/?a=1&amp;b=2"', page)
 
 
 if __name__ == "__main__":

@@ -89,9 +89,9 @@ WORK_STATE_HINTS = (
     ("보류", "ws-hold"),
     ("미착수", "ws-todo"),
 )
-# 포켓몬 배틀(별도 저장소 salesplus-pokemon, 개인 AWS 의 CloudFront) 주소. 배포 전이라 비어 있으면 칩을 그리지 않는다.
-# 배포가 끝나면 스택 출력 WebUrl 을 여기에 적는다 (2026-10-21)
-POKEMON_URL = ""
+# 포켓몬 배틀(별도 저장소 salesplus-pokemon, 개인 AWS 의 CloudFront) 주소 = 스택 출력 WebUrl. 비우면 칩을 그리지 않는다.
+# 스택을 다시 만들어 주소가 바뀌면 여기도 바꾼다 (2026-10-21 첫 배포)
+POKEMON_URL = "https://d19vsvtwa7hw2k.cloudfront.net"
 PROJECT_BANNER = "과제 페이지는 위키 요약이다. 일정·범위는 데이터 기준일 시점의 상태이며 확정이 아니다."
 SIGNAL_ROWS = (
     ("utterances", "발화 수", "건"),

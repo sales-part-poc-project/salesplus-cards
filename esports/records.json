@@ -8,7 +8,7 @@
   "members": [
     {"id": "동준", "unit": "ghost", "nickname": "사기 테란", "role": "1티어 · 오더 담당", "race": "테란", "race_confidence": "높음",
      "race_evidence": "원래 랜덤인데 불리할 땐 테란만 하겠다고 선언 · 핵 빌드 보유",
-     "tagline": "모두가 1:4 도 된다고 믿는 남자. 본인은 극구 부인"},
+     "tagline": "불리함에서 증명해야할 숙제가 많다"},
     {"id": "대영", "unit": "gateway", "nickname": "질럿 공장장", "role": "총사령관", "race": "프로토스", "race_confidence": "높음",
      "race_evidence": "질럿 공장 → 질럿·드라군 조합 운영",
      "tagline": "초반 5분은 아군 오더까지 책임진다. 그 뒤는 각자도생"},

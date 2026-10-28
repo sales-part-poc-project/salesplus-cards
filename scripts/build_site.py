@@ -16,7 +16,6 @@
 프로필·프로젝트가 0건이어도 사이트는 만들어진다 (빈 상태 문구만 찍힌다).
 index 순서는 활동 월드컵 → 업무 요약 → 파트 일정 → 프로젝트 → 멤버 → 네트워킹비(docs/BUDGET_SCHEMA.md) → 최근 변경.
 활동 월드컵(재미)만 인라인 JS 를 쓴다 — 대진이 새로고침마다 바뀌어야 해서. 외부 리소스는 여전히 없다.
-e스포츠 전적실(esports.html)은 build_esports.py 가 이 저장소의 esports/records.json 으로 따로 만들고, index 히어로에 링크만 건다.
 """
 
 from __future__ import annotations
@@ -67,7 +66,6 @@ from cards_data import (  # noqa: E402
     text,
 )
 from cards_data import KST, GitHub, warn  # noqa: E402
-import build_esports  # noqa: E402
 
 PROJECT_STATUS_CLASS = {"준비": "ps-todo", "진행중": "ps-doing", "보류": "ps-hold", "완료": "ps-done"}
 # 일정 종류 일곱 값 (docs/SCHEDULE_SCHEMA.md). 색은 파트 로고 팔레트 안에서만 고른다.
@@ -1983,7 +1981,6 @@ def render_index(
     today: date | None = None,
     daily: dict[str, Any] | None = None,
     budget: dict[str, Any] | None = None,
-    esports: bool = False,
 ) -> str:
     today = today or datetime.now(KST).date()
     member_hrefs = {text(d.get("name")): href_for("m", d) for d in profiles}
@@ -2001,8 +1998,6 @@ def render_index(
     low_n = sum(1 for d in profiles if text(sub(d, "signals").get("confidence")) == "낮음")
     if low_n:
         chips.append(f'<span class="chip"><b>표본 부족</b>{low_n}명</span>')
-    if esports:  # e스포츠 방 재미 페이지 (build_esports.py) — 만들어졌을 때만 잇는다
-        chips.append('<a class="chip chip-link" href="esports.html"><b>🎮 별들의 전쟁</b>점심 스타 전적실 →</a>')
     if POKEMON_URL:  # 포켓몬 배틀 — 위키 동기화로 받은 알로 하는 게임. 주소가 정해졌을 때만 잇는다
         chips.append(f'<a class="chip chip-link" href="{esc(POKEMON_URL)}" rel="noopener"><b>⚡ 포켓몬 배틀</b>알 부화 · 대전 →</a>')
     hero = (
@@ -2069,15 +2064,7 @@ def build(cards: list[Card], out_dir: Path) -> None:
         (out_dir / "m" / f"{text(d.get('name'))}.html").write_text(render_person(d, built), encoding="utf-8")
     for d in projects:
         (out_dir / "p" / f"{text(d.get('name'))}.html").write_text(render_project(d, built, member_hrefs), encoding="utf-8")
-    # e스포츠 페이지는 위키가 아니라 이 저장소의 esports/records.json 을 읽는다. 어긋나면 그 페이지만 빠진다
-    try:
-        es_errors = build_esports.write_page(out_dir, built=built)
-    except Exception as e:  # 손으로 고치는 파일이라 검증이 못 잡은 모양새가 와도 메인 사이트는 지킨다
-        es_errors = [f"렌더링 예외: {e!r}"]
-    for e in es_errors:
-        warn(f"esports.html 건너뜀: {e}")
-    index = render_index(profiles, projects, skipped, part, built, generated, schedule, changelog, now.date(), daily, budget,
-                         esports=not es_errors)
+    index = render_index(profiles, projects, skipped, part, built, generated, schedule, changelog, now.date(), daily, budget)
     (out_dir / "index.html").write_text(index, encoding="utf-8")
     (out_dir / ".nojekyll").write_text("", encoding="utf-8")  # Jekyll 후처리 방지
     near = upcoming_count(schedule, now.date())

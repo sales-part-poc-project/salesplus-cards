@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cards_data import (  # noqa: E402
+    Card,
     business_window,
     events_in_window,
     holiday_set,
@@ -36,19 +37,7 @@ from cards_data import (  # noqa: E402
     validate_schedule,
 )
 import build_site  # noqa: E402
-from build_site import (  # noqa: E402
-    BATTLE_DEFAULT_HERO,
-    BATTLE_HEROES,
-    BATTLE_ICON_ALTS,
-    BATTLE_ICON_SPARE,
-    BATTLE_JS,
-    BATTLE_PALETTE,
-    battle_colors,
-    battle_hero,
-    battle_icons,
-    battle_section,
-    render_index,
-)
+from build_site import render_index  # noqa: E402
 
 WED = date(2026, 9, 16)  # 수
 THU = date(2026, 9, 17)  # 목
@@ -635,172 +624,96 @@ class LoadLocalSingleFiles(unittest.TestCase):
             self.assertTrue(card.errors)
 
 
-def member(name: str, week: object = None, **over) -> dict:
-    """활동 월드컵 픽스처 — week 를 주면 signals.week 로 싣는다."""
-    base: dict = {"schema_version": 1, "name": name, "part": "세일즈플러스파트", "signals": {}, "fun": None}
-    if week is not None:
-        base["signals"]["week"] = week
-    base.update(over)
-    return base
+class NamesWithoutMemberLinks(unittest.TestCase):
+    """멤버 카드는 서재로 옮겼다 — 일정·네트워킹비·변경 이력은 사람 이름을 링크 없이 글자로만 그린다."""
 
+    def index(self) -> str:
+        today = date(2026, 9, 17)
+        schedule = sched(events=[ev("2026-09-17", "배포 점검", members=["고윤지"])])
+        changelog = chlog(entries=[{"date": "2026-09-17", "card": "project", "name": "과제", "kind": "updated", "summary": "요약"}])
+        return render_index([], [], "세일즈플러스파트", "2026-09-17 09:00 KST", "2026-09-17",
+                            schedule, changelog, today, None, budget())
 
-def wk(u: int = 10, a: int = 2, d: int = 3) -> dict:
-    return {"from": "2026-10-09", "to": "2026-10-15", "utterances": u, "artifacts": a, "active_days": d}
+    def test_이름은_글자로_남고_링크는_없다(self):
+        page = self.index()
+        self.assertIn('<span class="evmem">고윤지</span>', page)
+        self.assertIn('<span class="chtarget">과제</span>', page)
+        self.assertIn("유지영", page)
 
-
-def battle_payload(page: str) -> dict:
-    head = '<script type="application/json" id="battle-data">'
-    start = page.index(head) + len(head)
-    return json.loads(page[start:page.index("</script>", start)])
-
-
-class BattleSection(unittest.TestCase):
-    """활동 월드컵 — 맨 위 재미 섹션. 대진·점수는 브라우저가 매번 계산하고, 빌더는 참가자 JSON 만 싣는다."""
-
-    def index(self, profiles: list[dict]) -> str:
-        return render_index(profiles, [], [], "세일즈플러스파트", "2026-10-15 09:00 KST", "2026-10-15",
-                            today=date(2026, 10, 15), daily=daily())
-
-    def test_업무_요약보다_앞에_나온다(self):
-        page = self.index([member("김동준", wk()), member("임혜성", wk(30, 1, 5))])
-        self.assertIn('class="sec sec-battle"', page)
-        self.assertLess(page.index('class="sec sec-battle"'), page.index('class="sec sec-daily"'))
-
-    def test_이름의_script_종료_태그가_데이터를_탈출하지_못한다(self):
-        evil = "</script><b>"
-        page = self.index([member(evil, wk()), member("임혜성", wk())])
-        self.assertNotIn(evil, page)
-        names = [p["n"] for p in battle_payload(page)["players"]]
-        self.assertIn(evil, names)  # 브라우저가 읽으면 원래 이름 그대로
-
-    def test_승패에_운이_없다(self):
-        # 승패는 활동점수로만 — 새로고침해도 우승자가 바뀌지 않게 (2026-10-15 결정). 무작위는 대진 셔플에만 쓴다
-        duel = BATTLE_JS[BATTLE_JS.index("duel(a, b)"):BATTLE_JS.index("run(players")]
-        self.assertNotIn("rnd", duel)
-        self.assertNotIn("power(", BATTLE_JS)
-        page = self.index([member("김동준", wk()), member("임혜성", wk(30, 1, 5))])
-        self.assertNotIn("운이 섞", page)
-
-    def test_상태_클래스가_전역_on_규칙과_겹치지_않는다(self):
-        # 전역 `.on`(일정 "진행 중" 라벨)이 nowrap·작은 글씨를 물려 360px 에서 우승 문구가 잘렸다
-        self.assertNotRegex(BATTLE_JS, r"classList\.(add|remove|toggle)\('on'\)")
-
-    def test_week_가진_멤버가_2명_미만이면_섹션이_없다(self):
-        page = self.index([member("김동준", wk()), member("임혜성")])
-        self.assertNotIn('class="sec sec-battle"', page)  # CSS 에는 클래스 이름이 늘 있다
+    def test_멤버_페이지_링크와_월드컵_마크업이_없다(self):
+        page = self.index()
+        self.assertNotIn('href="m/', page)
+        self.assertNotIn('class="sec sec-battle"', page)
         self.assertNotIn('id="battle-data"', page)
-        self.assertEqual(battle_section([member("김동준", wk())], {}), "")
+        self.assertNotIn("<script>", page)  # 인라인 JS 는 월드컵 전용이었다
 
-    def test_week_가_없거나_숫자가_아닌_멤버는_빠진다(self):
-        bad = wk()
-        bad["artifacts"] = "3"
-        page = self.index([member("김동준", wk()), member("임혜성"), member("조수훈", bad), member("소예성", wk(5, 0, 1))])
-        data = battle_payload(page)
-        self.assertEqual([p["n"] for p in data["players"]], ["김동준", "소예성"])
-        self.assertEqual((data["from"], data["to"]), ("2026-10-09", "2026-10-15"))
-        self.assertEqual(data["players"][1]["u"], 5)
-        self.assertEqual(data["players"][0]["h"], "m/%EA%B9%80%EB%8F%99%EC%A4%80.html")
+    def test_프로젝트_담당도_글자로만_그린다(self):
+        proj = {"name": "과제", "part": "세일즈플러스파트", "status": "진행중", "members": [{"name": "임혜성", "role": "기획"}]}
+        page = render_index([proj], [], "세일즈플러스파트", "2026-09-17 09:00 KST", "2026-09-17", today=date(2026, 9, 17))
+        self.assertIn('<span class="mem">임혜성<i>기획</i></span>', page)
+        detail = build_site.render_project(proj, "2026-09-17 09:00 KST")
+        self.assertIn('<span class="mem">임혜성<i>기획</i></span>', detail)
+        self.assertNotIn("../m/", detail)
 
-    def test_싣는_필드는_이름_숫자_캐릭터뿐(self):
-        d = member("김동준", wk(), fun={"nickname": "별명"}, profile={"axes": {"delegation": 2, "exploration": 4}})
-        d["signals"].update({"markers": {"단정": 3}, "endings_top": ["요"], "badge": {"marker": "단정", "kind": "많이"}})
-        p = battle_payload(self.index([d, member("임혜성", wk())]))["players"][0]
-        self.assertEqual(set(p), {"n", "u", "a", "d", "h", "e", "j", "t", "x", "y", "k", "c", "s"})
-        self.assertEqual(p["s"], [["리더십", 2], ["창의", 4]])
-        self.assertEqual((p["k"], p["j"], p["t"]), ("별명", "결단 검사", "호기심 많은 결단 검사"))
-
-    def test_fun_null_이면_별명은_싣지_않는다(self):
-        d = member("김동준", wk(), fun=None)
-        d["signals"]["badge"] = {"marker": "느낌표", "kind": "많이"}
-        p = battle_payload(self.index([d, member("임혜성", wk())]))["players"][0]
-        self.assertEqual((p["k"], p["j"]), ("", "번개 전령"))
+    def test_서재로_옮겼다는_안내는_주소를_싣지_않는다(self):
+        page = self.index()
+        self.assertIn("별마당 서재", page)
+        self.assertNotRegex(page.split('class="hero-sub"')[1].split("</div>")[0], r"https?://|href=")
 
 
-class BattleHero(unittest.TestCase):
-    """캐릭터 — 직업은 말투 배지, 없으면 최고 축, 둘 다 없으면 신입 모험가. 수식어는 축에서 붙인다."""
+class ProfileHiddenOnPublicSite(unittest.TestCase):
+    """멤버 카드는 서재로 옮겼다 — profile 변경 이력과 profile 검증 건너뜀은 공개 사이트에 싣지 않는다."""
 
-    def hero(self, badge: dict | None = None, axes: dict | None = None, fun: object = None, **kw) -> dict:
-        d = member("김동준", fun=fun, signals={"badge": badge} if badge else {})
-        if axes:
-            d["profile"] = {"axes": axes}
-        return battle_hero(d, **kw)
+    TODAY = date(2026, 9, 17)
 
-    def test_배지_마커로_직업을_고른다(self):
-        h = self.hero({"marker": "제안형", "ratio": 2.5, "kind": "많이"}, fun={})
-        self.assertEqual((h["e"], h["j"], h["x"]), ("🧙", "아이디어 마법사", "wizard"))
-        h = self.hero({"marker": "확인요구", "kind": "많이"}, fun={})
-        self.assertEqual((h["e"], h["j"]), ("🛡️", "검증 수호자"))
+    def index(self, entries: list[dict], skipped: list | None = None) -> str:
+        page = render_index([], skipped or [], "세일즈플러스파트", "2026-09-17 09:00 KST", "2026-09-17",
+                            None, chlog(entries=entries), self.TODAY, None, None)
+        return page.split("</style>", 1)[1]  # CSS 주석은 제외 — 본문만 본다
 
-    def test_fun_null_이어도_배지가_있으면_배지_직업(self):
-        h = self.hero({"marker": "느낌표", "kind": "많이"}, fun=None)
-        self.assertEqual((h["e"], h["j"], h["y"]), ("⚡", "번개 전령", "wide"))
+    def entry(self, d: str, card: str, summary: str, name: str = "가") -> dict:
+        return {"date": d, "card": card, "name": name, "kind": "updated", "summary": summary}
 
-    def test_안_쓰는_배지는_반대_뜻의_호의적인_이름(self):
-        h = self.hero({"marker": "물결", "kind": "안씀"})
-        self.assertEqual((h["e"], h["j"]), ("🌊", "직진 서퍼"))
+    def test_profile_변경_항목은_그리지_않고_다른_종류는_남는다(self):
+        page = self.index([
+            self.entry("2026-09-17", "profile", "재미 코너 mbti ESFP→INTJ", "김동준"),
+            self.entry("2026-09-17", "project", "마일스톤 갱신", "과제"),
+        ])
+        self.assertNotIn("재미 코너", page)
+        self.assertNotIn("mbti", page)
+        self.assertNotIn("김동준", page)
+        self.assertIn("마일스톤 갱신", page)
 
-    def test_배지가_없으면_최고_축으로_직업_동점이면_고정_순서(self):
-        h = self.hero(axes={"exploration": 4, "planning": 4, "delegation": 2})
-        self.assertEqual((h["e"], h["j"], h["t"]), ("📜", "전략가", "호기심 많은 전략가"))
+    def test_profile_만_있던_날짜는_통째로_빠진다(self):
+        page = self.index([
+            self.entry("2026-09-16", "profile", "age_band 20대 후반→30대 초반"),
+            self.entry("2026-09-17", "project", "마일스톤 갱신", "과제"),
+        ])
+        self.assertNotIn("age_band", page)
+        self.assertEqual(page.count('class="chdate"'), 1)
 
-    def test_배지도_축도_없으면_신입_모험가(self):
-        h = self.hero()
-        self.assertEqual((h["e"], h["j"], h["t"], h["x"]), ("⭐", "신입 모험가", "신입 모험가", "sprout"))
-        self.assertEqual(self.hero({"marker": "새마커", "kind": "많이"})["j"], BATTLE_DEFAULT_HERO[1])
+    def test_profile_만_있으면_변경_없음_문구(self):
+        page = self.index([self.entry("2026-09-17", "profile", "요약")])
+        self.assertIn("지난 7일간 카드 변경 없음", page)
 
-    def test_수식어는_최고_축_같은_뜻이면_두번째_축(self):
-        h = self.hero({"marker": "위임분담", "kind": "많이"}, axes={"delegation": 5, "verification": 3})
-        self.assertEqual(h["t"], "빈틈없는 작전 지휘관")
-        h = self.hero({"marker": "단정", "kind": "많이"}, axes={"delegation": 5, "verification": 3})
-        self.assertEqual(h["t"], "든든한 결단 검사")
+    def test_profile_검증_건너뜀은_경고_상자에_없다(self):
+        page = self.index([], [Card("profile", "profiles/이현진.json", None, ["fun.mbti: 잘못됨"])])
+        self.assertNotIn("이현진", page)
+        self.assertNotIn("검증에서 건너뛴 파일", page)
 
-    def test_앞_참가자와_전체_직업이_같으면_다음_축_수식어(self):
-        kw = {"badge": {"marker": "단정", "kind": "많이"}, "axes": {"delegation": 5, "verification": 3}}
-        self.assertEqual(self.hero(**kw, taken={"든든한 결단 검사"})["t"], "빈틈없는 결단 검사")
-
-    def test_눈_웃음_배지는_웃는_눈_검증이_최고면_안경(self):
-        self.assertEqual(self.hero({"marker": "웃음ㅋ", "kind": "많이"}, axes={"verification": 5})["y"], "smile")
-        self.assertEqual(self.hero({"marker": "단정", "kind": "많이"}, axes={"verification": 5})["y"], "glasses")
-        self.assertEqual(self.hero(axes={"exploration": 5})["y"], "sparkle")
-
-    def test_몸_색은_참가자끼리_겹치지_않는다(self):
-        names = ["강돈희", "고윤지", "김동준", "소예성", "유지영", "이현진", "임미향", "임혜성", "조수훈", "황혜경"]
-        colors = battle_colors(names)
-        self.assertEqual(len(set(colors.values())), len(names))
-        self.assertTrue(all(0 <= c < BATTLE_PALETTE for c in colors.values()))
-        self.assertEqual(colors, battle_colors(list(reversed(names))))  # 입력 순서와 무관하게 결정적
-
-    def test_상징_아이콘은_참가자끼리_겹치지_않는다(self):
-        primary = {"김동준": "🧙", "유지영": "🧙", "이현진": "🧭", "고윤지": "🧭", "강돈희": "😊", "임미향": "😊"}
-        icons = battle_icons(primary)
-        self.assertEqual(len(set(icons.values())), len(primary))
-        self.assertEqual(icons["김동준"], "🧙")  # 이름 순으로 먼저인 사람이 자기 이모지
-        self.assertIn(icons["유지영"], BATTLE_ICON_ALTS["🧙"])  # 다음 사람은 같은 테마 대체
-        self.assertEqual(icons, battle_icons(dict(reversed(list(primary.items())))))  # 결정적
-
-    def test_대체_아이콘이_바닥나면_예비에서_고른다(self):
-        primary = {f"사람{i}": "🗡️" for i in range(4)}  # 자기 1 + 대체 2 → 넷째는 예비
-        icons = battle_icons(primary)
-        self.assertEqual(len(set(icons.values())), 4)
-        self.assertIn(icons["사람3"], BATTLE_ICON_SPARE)
-
-    def test_대진표_데이터의_아이콘이_겹치지_않는다(self):
-        same = {"week": wk(), "badge": {"marker": "제안형", "kind": "많이"}}
-        people = [member(n, signals=dict(same), profile={"axes": {"exploration": 5}}) for n in ("김동준", "유지영", "황혜경")]
-        page = render_index(people, [], [], "세일즈플러스파트", "2026-10-15 09:00 KST", "2026-10-15", today=date(2026, 10, 15))
-        icons = [p["e"] for p in battle_payload(page)["players"]]
-        self.assertEqual(len(set(icons)), 3)
-
-    def test_매핑의_칸은_모두_비어있지_않다(self):
-        for marker, row in BATTLE_HEROES.items():
-            self.assertTrue(all(row[:4]), marker)
+    def test_다른_종류_건너뜀은_경고_상자에_남는다(self):
+        page = self.index([], [Card("profile", "profiles/이현진.json", None, ["x"]),
+                              Card("schedule", "schedule.json", None, ["events: 잘못됨"])])
+        self.assertIn("schedule.json", page)
+        self.assertIn("검증에서 건너뛴 파일 1건", page)
+        self.assertNotIn("이현진", page)
 
 
 class PokemonChip(unittest.TestCase):
     """포켓몬 배틀 링크 칩 — 주소(build_site.POKEMON_URL)가 정해졌을 때만 히어로에 붙는다."""
 
     def index(self) -> str:
-        return render_index([], [], [], "세일즈플러스파트", "2026-10-21 09:00 KST", "2026-10-21", today=date(2026, 10, 21))
+        return render_index([], [], "세일즈플러스파트", "2026-10-21 09:00 KST", "2026-10-21", today=date(2026, 10, 21))
 
     def test_주소가_비어_있으면_칩이_없다(self):
         with mock.patch.object(build_site, "POKEMON_URL", ""):
